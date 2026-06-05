@@ -1,0 +1,4 @@
+# Wymuszamy LF dla plików, które uruchamiane są na Linuxie.
+*.sh   text eol=lf
+*.py   text eol=lf
+*.md   text eol=lf
