@@ -18,7 +18,7 @@ kiedy startuje (np. testowe serwery, eventy, prywatne configi).
 ## Szybka instalacja (one-liner, prosto z GitHuba)
 
 ```bash
-QLX_OWNER=7656119XXXXXXXXXX \
+QLX_OWNER=76561198799965164 \
 RCON_PASSWORD=mojeRconHaslo \
 STATS_PASSWORD=mojeStatsHaslo \
 bash <(curl -fsSL https://raw.githubusercontent.com/goof3r/quakelive-server/main/install_minqlx_server.sh)
@@ -35,7 +35,7 @@ Skrypt sam pobierze `commands.py` (załatany plugin `!lc`) z tego repo.
 ```bash
 git clone https://github.com/goof3r/quakelive-server.git
 cd quakelive-server
-QLX_OWNER=7656119XXXXXXXXXX ./install_minqlx_server.sh
+QLX_OWNER=76561198799965164 ./install_minqlx_server.sh
 ```
 
 W tym wariancie instalator użyje `commands.py` leżącego obok skryptu — nie
@@ -48,7 +48,7 @@ można nadpisać z linii poleceń. Najczęściej używane:
 
 | Zmienna | Domyślnie | Co robi |
 |---|---|---|
-| `QLX_OWNER` | `0000000000000000` | **TWÓJ SteamID64 (17 cyfr)** — bez tego nie zadziałają komendy admina |
+| `QLX_OWNER` | `76561198799965164` | **TWÓJ SteamID64 (17 cyfr)** — domyślnie ustawiony właściciel; nadpisz, jeśli to nie Twój ID |
 | `SV_HOSTNAME` | `^2My minqlx Server` | nazwa serwera na liście |
 | `NET_PORT` | `27960` | port UDP bazowego serwera (gdy NIE używasz trybów FFA/TDM/FT) |
 | `RCON_PASSWORD` | `zmien_to_haslo_rcon` | hasło rcon (ZMIEŃ) |

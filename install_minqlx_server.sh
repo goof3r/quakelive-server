@@ -21,7 +21,7 @@
 #    3) ./install_minqlx_server.sh
 #
 #  Wszystkie zmienne można też nadpisać przez środowisko, np.:
-#    QLX_OWNER=7656119xxxxxxxxxx NET_PORT=27960 ./install_minqlx_server.sh
+#    QLX_OWNER=76561198799965164 NET_PORT=27960 ./install_minqlx_server.sh
 ###############################################################################
 
 set -euo pipefail
@@ -29,7 +29,7 @@ set -euo pipefail
 # ───────────────────────────── KONFIGURACJA ─────────────────────────────────
 # TWÓJ SteamID64 (17 cyfr) — WŁAŚCICIEL serwera. Bez tego nie zadziałają
 # komendy admina. Konwerter: https://steamid.io  (pole steamID64)
-: "${QLX_OWNER:=0000000000000000}"
+: "${QLX_OWNER:=76561198799965164}"
 
 # Nazwa serwera widoczna na liście
 : "${SV_HOSTNAME:=^2My minqlx Server}"
@@ -113,7 +113,7 @@ command -v sudo  >/dev/null 2>&1 || die "Brak 'sudo'. Zainstaluj sudo i dodaj u�
 command -v apt-get >/dev/null 2>&1 || die "Skrypt obsługuje tylko systemy z apt (Debian/Ubuntu). Zobacz README dla innych systemów."
 [ "$(uname -m)" = "x86_64" ] || warn "Wykryto architekturę $(uname -m). Serwer QL wymaga x86_64 — może nie zadziałać."
 
-if [ "$QLX_OWNER" = "0000000000000000" ] || ! [[ "$QLX_OWNER" =~ ^[0-9]{17}$ ]]; then
+if ! [[ "$QLX_OWNER" =~ ^[0-9]{17}$ ]]; then
   warn "QLX_OWNER nie jest poprawnym SteamID64 (17 cyfr). Zainstaluję serwer, ale"
   warn "PAMIĘTAJ ustawić qlx_owner później (w start.sh), inaczej nie będziesz adminem."
 fi
@@ -336,7 +336,7 @@ set g_allowVote            "1"
 
 // --- minqlx: rdzeń ---
 // qlx_owner ustawiany jest w start.sh (z wartości QLX_OWNER). Możesz też tu:
-// set qlx_owner            "7656119XXXXXXXXXX"
+// set qlx_owner            "76561198799965164"
 
 set qlx_commandPrefix      "!"
 
@@ -550,7 +550,7 @@ done
 
 # 3) Owner i hasła — dziedziczone z pierwszego start.sh
 extract(){ grep -oE "\+set $1 \"[^\"]*\"" "$QLDS_DIR/start.sh" 2>/dev/null | head -1 | sed -E 's/.*"([^"]*)"/\1/'; }
-OWNER="$(extract qlx_owner)"; OWNER="${OWNER:-0000000000000000}"
+OWNER="$(extract qlx_owner)"; OWNER="${OWNER:-76561198799965164}"
 STATS_PW="$(extract zmq_stats_password)"; STATS_PW="${STATS_PW:-zmien_to_haslo_stats}"
 RCON_PW="$(extract zmq_rcon_password)"; RCON_PW="${RCON_PW:-zmien_to_haslo_rcon}"
 
