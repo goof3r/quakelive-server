@@ -71,6 +71,23 @@ CHECKPLAYERS_RAW="https://raw.githubusercontent.com/x0rnn/minqlx-plugins/master/
 : "${COMMANDS_PY_URL:=https://raw.githubusercontent.com/goof3r/quakelive-server/main/commands.py}"
 QLDS_APPID="349090"
 STEAMCMD_URL="https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz"
+
+# Lista Steam Workshop ID-ków ładowanych na starcie serwera. Generuje:
+#   1) $QLDS_DIR/workshop.txt (jeden ID na linię — łatwa edycja ręczna),
+#   2) cvar 'qlx_workshopReferences' (comma-lista) w server.cfg i tdm/ffa/ft.cfg
+#      — plugin 'workshop' (MinoMino) faktycznie czyta TĘ wartość, plik .txt to
+#      tylko ludzka kopia listy.
+WORKSHOP_IDS=(
+  623144451 539421982 539421606 546664071 547252823 573808557 583820600
+  573807159 584964611 564894881 575312620 586817666 584984610 565025333
+  638618725 638531198 637351306 617896584 564946744 641499246 641587915
+  637350852 641575854 643615147 675534589 679928531 679928822 568582691
+  582665687 584815070 673213646 726131097 726132863 726133798 726134197
+  663160788 774095795 803438741 824405313 827249184 827250713 827252336
+  824405003 850146040 852034378
+)
+WORKSHOP_IDS_CSV="$( IFS=, ; echo "${WORKSHOP_IDS[*]}" )"
+WORKSHOP_IDS_TXT="$(printf '%s\n' "${WORKSHOP_IDS[@]}")"
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Pomocnicze ───────────────────────────────────────────────────────────────
@@ -414,6 +431,14 @@ set qlx_redisDatabase      "0"
 set qlx_redisUnixSocket    "0"
 // set qlx_redisPassword   ""
 
+// --- Steam Workshop (plugin 'workshop' z MinoMino) ---
+// Lista ID-ków przedmiotów Workshop ładowanych do serwera (mapy, modele itd.).
+// Ludzką wersję tej listy trzymasz w pliku $QLDS_DIR/workshop.txt — instalator
+// generuje OBA, ale ŹRÓDŁEM PRAWDY DLA SERWERA jest CVAR poniżej (plugin czyta
+// cvar, nie plik). Po edycji workshop.txt zsynchronizuj ten cvar ręcznie albo
+// uruchom instalator ponownie.
+set qlx_workshopReferences "__QLX_WORKSHOP__"
+
 // --- minqlx: logi ---
 set qlx_logs               "5"
 set qlx_logsSize           "5000000"
@@ -427,13 +452,15 @@ set qlx_logsSize           "5000000"
 //   ffa duel ca ctf tdm ft dom ad oneflag har race rr infected quadhog actf ictf iffa ift vca
 map campgrounds ffa
 CFGEOF
-# Wstrzykujemy aktualną listę pluginów w wygenerowany plik:
+# Wstrzykujemy aktualną listę pluginów oraz listę workshop w wygenerowany plik:
 sed -i "s|__QLX_PLUGINS__|${QLX_PLUGINS_LIST}|" "$CFG_OUT"
+sed -i "s|__QLX_WORKSHOP__|${WORKSHOP_IDS_CSV}|" "$CFG_OUT"
 ok "Zapisano konfigurację: $CFG_OUT"
 
 # Jeśli aktywny server.cfg już istniał (zapisaliśmy tylko .example), to mimo to
-# ZSYNCHRONIZUJ w nim linię qlx_plugins — inaczej nowe pluginy się nie załadują.
-# Reszta Twoich ustawień (mapa, hostname itd.) pozostaje nietknięta. Backup obok.
+# ZSYNCHRONIZUJ w nim linie qlx_plugins i qlx_workshopReferences — inaczej nowe
+# pluginy/workshop się nie załadują. Reszta Twoich ustawień (mapa, hostname itd.)
+# pozostaje nietknięta. Backup obok.
 if [ "$CFG_OUT" != "$CFG" ] && [ -f "$CFG" ]; then
   cp -a "$CFG" "${CFG}.bak.$(date +%Y%m%d%H%M%S)"
   if grep -qE '^[[:space:]]*set[[:space:]]+qlx_plugins' "$CFG"; then
@@ -443,7 +470,28 @@ if [ "$CFG_OUT" != "$CFG" ] && [ -f "$CFG" ]; then
     printf '\nset qlx_plugins "%s"\n' "$QLX_PLUGINS_LIST" >> "$CFG"
     ok "Dodano qlx_plugins do istniejącego server.cfg (kopia: ${CFG}.bak.*)."
   fi
+  if grep -qE '^[[:space:]]*set[[:space:]]+qlx_workshopReferences' "$CFG"; then
+    sed -i -E "s|^[[:space:]]*set[[:space:]]+qlx_workshopReferences.*|set qlx_workshopReferences \"${WORKSHOP_IDS_CSV}\"|" "$CFG"
+    ok "Zsynchronizowano qlx_workshopReferences w istniejącym server.cfg."
+  else
+    printf 'set qlx_workshopReferences "%s"\n' "$WORKSHOP_IDS_CSV" >> "$CFG"
+    ok "Dodano qlx_workshopReferences do istniejącego server.cfg."
+  fi
 fi
+
+# ── 7a. workshop.txt (Steam Workshop ID-ki) ──────────────────────────────────
+# Plik z listą ID-ków Workshop, jeden na linię. ŹRÓDŁEM PRAWDY dla pluginu jest
+# CVAR qlx_workshopReferences (powyżej, w cfgach) — plik to ludzka, łatwa do
+# edycji wersja listy. Przy ponownym uruchomieniu instalatora cvar i plik są
+# regenerowane z tablicy WORKSHOP_IDS na początku tego skryptu.
+WORKSHOP_FILE="$QLDS_DIR/workshop.txt"
+if [ -f "$WORKSHOP_FILE" ]; then
+  warn "workshop.txt już istnieje — nie nadpisuję. Wzór zapisuję jako workshop.txt.example."
+  printf '%s\n' "$WORKSHOP_IDS_TXT" > "${WORKSHOP_FILE}.example"
+else
+  printf '%s\n' "$WORKSHOP_IDS_TXT" > "$WORKSHOP_FILE"
+fi
+ok "Lista workshop: $WORKSHOP_FILE (${#WORKSHOP_IDS[@]} ID-ków)"
 
 # ── 8. Skrypt startowy ───────────────────────────────────────────────────────
 START="$QLDS_DIR/start.sh"
@@ -1206,6 +1254,7 @@ set sv_idleExit            "600"
 // minqlx
 set qlx_owner              "${QLX_OWNER}"
 set qlx_plugins            "${GT_PLUGINS_LIST}"
+set qlx_workshopReferences "${WORKSHOP_IDS_CSV}"
 set qlx_database           "Redis"
 set qlx_redisAddress       "127.0.0.1"
 set qlx_redisDatabase      "0"
@@ -1319,10 +1368,11 @@ echo -e "${c_ok} INSTALACJA ZAKOŃCZONA${c_end}"
 echo -e "${c_ok}=============================================================${c_end}"
 cat <<EOF
 
-Serwer:   ${QLDS_DIR}
-Config:   ${QLDS_DIR}/baseq3/server.cfg
-Start:    ${QLDS_DIR}/start.sh
-Pluginy:  ${QLDS_DIR}/minqlx-plugins
+Serwer:    ${QLDS_DIR}
+Config:    ${QLDS_DIR}/baseq3/server.cfg
+Start:     ${QLDS_DIR}/start.sh
+Pluginy:   ${QLDS_DIR}/minqlx-plugins
+Workshop:  ${QLDS_DIR}/workshop.txt (${#WORKSHOP_IDS[@]} ID-ków, cvar qlx_workshopReferences w cfgach)
 
 ZANIM WYSTARTUJESZ — sprawdź:
   • qlx_owner (SteamID64) w start.sh        -> obecnie: ${QLX_OWNER}
