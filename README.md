@@ -109,6 +109,49 @@ Uruchom instalator ponownie — zaktualizuje QLDS (SteamCMD `validate`), minqlx
 (`git pull` + rebuild) i wszystkie pluginy. Twój `server.cfg` zostanie
 nietknięty (sync tylko linii `qlx_plugins`, kopia jako `.bak.<timestamp>`).
 
+## Komendy dodane przez ten installer
+
+Poza domyślnym MinoMino/BarelyMiSSeD/tjone270 instalator dorzuca własny plugin
+`serverhelp` (z tego repo), który zmienia zachowanie kilku komend:
+
+| Komenda | Co robi |
+|---|---|
+| `!help` | Listuje **wszystkie dostępne komendy** (jedna pod drugą, z poziomem uprawnień i pluginem właścicielem). Bez argumentów. Domyślnie filtruje do komend, na które masz uprawnienia — cvar `qlx_serverhelpShowAll "1"` pokazuje wszystkie. |
+| `!version` | Wersja minqlx + wersja MinoMino plugin packa (to, co wcześniej pokazywał `!help` w essentials). |
+| `!perms` | Lista poziomów uprawnień 0–5 z polskimi etykietami + zaznaczenie **Twojego** aktualnego poziomu. |
+
+Plugin nadpisuje `!help` i `!version` przez `priority=PRI_HIGH` + `RET_STOP_ALL`,
+więc nie patchuje cudzego essentials — przy update MinoMino nic się nie psuje.
+
+### Plugin `permoverride` — przypisywanie komend do innego poziomu
+
+Drugi własny plugin pozwala zmienić poziom uprawnień DOWOLNEJ komendy bez
+patchowania jej macierzystego pluginu. Konfiguracja w `server.cfg`:
+
+```
+// !kick standardowo perm 2 (essentials). Tu obniżamy do 1 — może modować.
+set qlx_permFor_kick    "1"
+// !map standardowo perm 2 → 3 (tylko head-admin może zmieniać mapę)
+set qlx_permFor_map     "3"
+```
+
+Wzór: `qlx_permFor_<alias>` gdzie `<alias>` to dowolny alias komendy (np. dla
+`!cmds`/`!commands` zadziała każdy z dwóch). Zakres wartości: **0–5**.
+
+Komendy on-the-fly:
+
+| Komenda | Co robi |
+|---|---|
+| `!permset <komenda> <0-5>` | Zmiana poziomu na żywo (perm 5). Trzyma się do restartu lub override'a z cvara. |
+| `!permshow <komenda>` | Pokazuje aktualny poziom i plugin, do którego komenda należy (perm 0). |
+| `!permlist` | Lista wszystkich aktywnych override'ów z `qlx_permFor_*` (perm 0). |
+| `!permreload` | Ponowne wczytanie cvarów po edycji `server.cfg` (perm 5). |
+
+Plugin `permoverride` jest dodawany na koniec `qlx_plugins`, żeby override
+leciał już po tym, jak inne pluginy zarejestrowały swoje komendy. Hook
+`loaded` automatycznie re-aplikuje override'y, gdy załadujesz nowy plugin
+przez `qlx_loadPlugin`.
+
 ## Test
 
 Wejdź na serwer i wpisz na czacie:
@@ -118,6 +161,14 @@ Wejdź na serwer i wpisz na czacie:
 ```
 
 Jeśli pokaże poziom uprawnień > 0 — jesteś rozpoznany jako właściciel.
+
+Sprawdź też nowe komendy:
+
+```
+!help        // lista wszystkich komend
+!version     // wersja minqlx
+!perms       // poziomy + Twój obecny
+```
 
 ## Licencja
 

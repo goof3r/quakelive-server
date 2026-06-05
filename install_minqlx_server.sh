@@ -69,6 +69,10 @@ CHECKPLAYERS_RAW="https://raw.githubusercontent.com/x0rnn/minqlx-plugins/master/
 # przez 'curl | bash' bez lokalnej kopii). Nadpiszesz np. forkując i ustawiając
 # COMMANDS_PY_URL=...  w środowisku przed uruchomieniem.
 : "${COMMANDS_PY_URL:=https://raw.githubusercontent.com/goof3r/quakelive-server/main/commands.py}"
+# Plugin serverhelp (własny: !help / !version / !perms — patrz serverhelp.py w repo).
+: "${SERVERHELP_PY_URL:=https://raw.githubusercontent.com/goof3r/quakelive-server/main/serverhelp.py}"
+# Plugin permoverride (własny: cvar qlx_permFor_<komenda> + !permset/!permshow/!permlist/!permreload).
+: "${PERMOVERRIDE_PY_URL:=https://raw.githubusercontent.com/goof3r/quakelive-server/main/permoverride.py}"
 QLDS_APPID="349090"
 STEAMCMD_URL="https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz"
 
@@ -269,6 +273,61 @@ else
     warn "(może wywalać serwer przy !lc z pełną listą pluginów)."
   fi
 fi
+
+# ── 5a-bis. Plugin serverhelp (własny: !help / !version / !perms) ─────────────
+# Przejmuje !help (lista WSZYSTKICH komend, jedna pod drugą) oraz !version
+# (zwraca wersję minqlx) — robi to przez priority=PRI_HIGH + RET_STOP_ALL,
+# więc handler cmd_help z essentials nie zostanie wywołany dla tych aliasów.
+# Dodaje też !perms (poziomy 0..5 + bieżący poziom gracza).
+#
+# Źródło pliku: tak samo jak commands.py — lokalne obok skryptu albo curl.
+SRC_SERVERHELP=""
+[ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/serverhelp.py" ] && SRC_SERVERHELP="$SCRIPT_DIR/serverhelp.py"
+DST_SERVERHELP="$QLDS_DIR/minqlx-plugins/serverhelp.py"
+if [ -n "$SRC_SERVERHELP" ]; then
+  log "Wgrywam plugin serverhelp (!help/!version/!perms) z lokalnego $SRC_SERVERHELP..."
+  cp -f "$SRC_SERVERHELP" "$DST_SERVERHELP"
+  ok "Plugin serverhelp wgrany z $SRC_SERVERHELP."
+else
+  log "Pobieram plugin serverhelp z $SERVERHELP_PY_URL..."
+  if curl -fsSL "$SERVERHELP_PY_URL" -o "$DST_SERVERHELP" && [ -s "$DST_SERVERHELP" ]; then
+    if grep -qE '^class[[:space:]]+serverhelp' "$DST_SERVERHELP"; then
+      ok "Plugin serverhelp pobrany z GitHub."
+    else
+      warn "Pobrany serverhelp.py wygląda na uszkodzony (brak 'class serverhelp') — usuwam."
+      rm -f "$DST_SERVERHELP"
+    fi
+  else
+    warn "Nie udało się pobrać serverhelp.py z $SERVERHELP_PY_URL — !help pozostanie domyślne."
+  fi
+fi
+
+# ── 5a-ter. Plugin permoverride (nadpisywanie qlx perm dla komend cvarami) ────
+# Czyta `qlx_permFor_<komenda>` z server.cfg i podmienia .permission na
+# obiektach minqlx.Command po starcie. Dodaje !permset/!permshow/!permlist/
+# !permreload. Powinien być ZA innymi pluginami w qlx_plugins — installer
+# ustawia go na samym końcu listy automatycznie.
+SRC_PERMOVERRIDE=""
+[ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/permoverride.py" ] && SRC_PERMOVERRIDE="$SCRIPT_DIR/permoverride.py"
+DST_PERMOVERRIDE="$QLDS_DIR/minqlx-plugins/permoverride.py"
+if [ -n "$SRC_PERMOVERRIDE" ]; then
+  log "Wgrywam plugin permoverride z lokalnego $SRC_PERMOVERRIDE..."
+  cp -f "$SRC_PERMOVERRIDE" "$DST_PERMOVERRIDE"
+  ok "Plugin permoverride wgrany z $SRC_PERMOVERRIDE."
+else
+  log "Pobieram plugin permoverride z $PERMOVERRIDE_PY_URL..."
+  if curl -fsSL "$PERMOVERRIDE_PY_URL" -o "$DST_PERMOVERRIDE" && [ -s "$DST_PERMOVERRIDE" ]; then
+    if grep -qE '^class[[:space:]]+permoverride' "$DST_PERMOVERRIDE"; then
+      ok "Plugin permoverride pobrany z GitHub."
+    else
+      warn "Pobrany permoverride.py wygląda na uszkodzony (brak 'class permoverride') — usuwam."
+      rm -f "$DST_PERMOVERRIDE"
+    fi
+  else
+    warn "Nie udało się pobrać permoverride.py z $PERMOVERRIDE_PY_URL — override'y cvarami nie zadziałają."
+  fi
+fi
+
 ok "Pluginy dodatkowe skopiowane (włączysz wybrane w server.cfg → qlx_plugins)."
 
 # ── 5b. Pluginy zewnętrzne używane przez cfg trybów FFA/TDM/FT ────────────────
@@ -322,12 +381,12 @@ mkdir -p "$QLDS_DIR/baseq3"
 
 # Pełna lista pluginów. Wstrzykiwana do server.cfg, a przy aktualizacji
 # synchronizowana również w już istniejącym server.cfg (patrz niżej).
-QLX_PLUGINS_LIST="plugin_manager, essentials, motd, permission, ban, silence, clan, names, log, workshop, aliases, autorestart, botmanager, branding, custom_votes, dictionary, disabled_commands, ips, onjoin, permaban, permissionlist, q3resolver, quiet, ratinglimiter, sv_fps, thirtysecwarn, votemanager, votestats, commands"
+QLX_PLUGINS_LIST="plugin_manager, essentials, motd, permission, ban, silence, clan, names, log, workshop, aliases, autorestart, botmanager, branding, custom_votes, dictionary, disabled_commands, ips, onjoin, permaban, permissionlist, q3resolver, quiet, ratinglimiter, sv_fps, thirtysecwarn, votemanager, votestats, commands, serverhelp, permoverride"
 
 # Lista pluginów dla serwerów trybów (FFA/TDM/FT). Wzięta z dołączonych cfg-ów,
 # ale OCZYSZCZONA: usunięte 'irc' (na życzenie) oraz 'patch' i 'specvote' (bespoke
 # pluginy obcego serwera — nie istnieją w żadnym repo, blokowałyby ładowanie).
-GT_PLUGINS_LIST="plugin_manager, essentials, motd, permission, ban, clan, names, silence, log, balance, branding, workshop, queue, autospec, checkplayers, votestats, ips, aliases, botmanager, onjoin"
+GT_PLUGINS_LIST="plugin_manager, essentials, motd, permission, ban, clan, names, silence, log, balance, branding, workshop, queue, autospec, checkplayers, votestats, ips, aliases, botmanager, onjoin, serverhelp, permoverride"
 
 if [ -f "$CFG" ]; then
   warn "server.cfg już istnieje — nie nadpisuję go w całości. Wzór: server.cfg.example."
