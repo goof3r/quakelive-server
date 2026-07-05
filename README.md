@@ -4,12 +4,15 @@ Skrypt `install_minqlx_server.sh` stawia od zera serwer Quake Live (QLDS) z
 minqlx i kompletem pluginów (MinoMino + BarelyMiSSeD + tjone270 + kilka
 zewnętrznych) na czystym Debianie/Ubuntu (x86_64).
 
-Serwery trybów **FFA / TDM / FT** uruchamiane są w sesjach **GNU screen**
-(`start-ffa`, `start-tdm`, `start-ft`) i rejestrowane w systemd z opcją
-`RemainAfterExit` — **startują automatycznie po każdym reboot**.
+**Każda** instancja (generyczny `qlserver`, serwery trybów FFA/TDM/FT oraz
+serwery dodane przez `add_server.sh`) działa w sesji **GNU screen**
+(`start-ql`, `start-ffa`, `start-tdm`, `start-ft`, `start-<nazwa>`) pod usługą
+systemd typu `simple` z `Restart=on-failure` — **startują automatycznie po
+każdym reboot** oraz **automatycznie wstają po crashu** (po 5 s).
 
-Dodatkowe instancje dodawane przez `add_server.sh` **NIE** są rejestrowane
-w systemd — uruchamiasz je ręcznie.
+Wzorzec usługi: `ExecStart=/usr/bin/screen -DmS <name> <start-script>`
+(`-D` trzyma screen w foreground, dzięki czemu systemd widzi proces i może
+go restartować). Konsolę podłączasz przez `screen -r <name>`.
 
 ## Wymagania
 
@@ -126,12 +129,14 @@ Plik trafia do `$QLDS_DIR/baseq3/scripts/gametypes.factories` podczas instalacji
 ~/qlds/add_server.sh duel 27970   # od razu z argumentami
 ```
 
-Tworzy `baseq3/<nazwa>.cfg`, `start-<nazwa>.sh`, katalog `instances/<nazwa>/`.
-**Nie tworzy** żadnego unitu systemd. Uruchom ręcznie w screenie:
+Tworzy `baseq3/<nazwa>.cfg`, `start-<nazwa>.sh`, katalog `instances/<nazwa>/`
+oraz usługę systemd `qlserver-<nazwa>.service` (screen `start-<nazwa>` +
+`Restart=on-failure`). Usługa jest od razu włączona (autostart po reboot).
 
 ```bash
-screen -dmS start-duel ~/qlds/start-duel.sh
-screen -r start-duel
+sudo systemctl start qlserver-duel
+screen -r start-duel              # podłączenie do konsoli (odłącz: Ctrl+A, D)
+sudo journalctl -u qlserver-duel -f
 ```
 
 Otwórz w firewallu port UDP (oraz `port+1000` TCP dla rcon).

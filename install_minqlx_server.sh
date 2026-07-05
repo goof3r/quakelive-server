@@ -611,12 +611,16 @@ chmod +x "$START"
 ok "Skrypt startowy: $START"
 
 # ── 9. systemd ───────────────────────────────────────────────────────────────
+# Wzorzec: screen -DmS <name> <cmd>  (D = foreground/nie forkuj, m = ignoruj $STY).
+# Dzięki temu screen jest głównym procesem usługi — gdy serwer QL padnie,
+# screen się kończy, a systemd (Restart=on-failure) podnosi instancję na nowo.
+# Konsolę serwera podłączasz w dowolnej chwili przez:  screen -r start-ql
 if [ "$INSTALL_SYSTEMD" = "1" ]; then
-  log "Instaluję usługę systemd (autostart)..."
+  log "Instaluję usługę systemd (autostart + screen + autorestart)..."
   UNIT="/etc/systemd/system/qlserver.service"
   sudo tee "$UNIT" >/dev/null <<EOF
 [Unit]
-Description=Quake Live Dedicated Server (minqlx)
+Description=Quake Live Dedicated Server (minqlx) [screen: start-ql]
 After=network.target redis-server.service
 Wants=redis-server.service
 
@@ -624,7 +628,8 @@ Wants=redis-server.service
 Type=simple
 User=$(whoami)
 WorkingDirectory=${QLDS_DIR}
-ExecStart=${QLDS_DIR}/start.sh
+ExecStart=/usr/bin/screen -DmS start-ql ${QLDS_DIR}/start.sh
+ExecStop=/usr/bin/screen -S start-ql -X quit
 Restart=on-failure
 RestartSec=5
 
@@ -636,7 +641,7 @@ EOF
     ok "Usługa qlserver.service zainstalowana, ale NIE włączona (używasz serwerów trybów FFA/TDM/FT; generyczny server.cfg dzieliłby port 27960 z tdm)."
   else
     sudo systemctl enable qlserver.service
-    ok "Usługa qlserver.service zainstalowana (jeszcze nieuruchomiona)."
+    ok "Usługa qlserver.service zainstalowana (jeszcze nieuruchomiona). Konsola: screen -r start-ql"
   fi
 fi
 
@@ -644,22 +649,20 @@ fi
 # Kolejne serwery używają TEJ SAMEJ instalacji QLDS/minqlx, ale mają:
 #   • własny port UDP,
 #   • własny plik konfiguracji baseq3/<nazwa>.cfg (pierwszy ma server.cfg),
-#   • własny skrypt start-<nazwa>.sh.
+#   • własny skrypt start-<nazwa>.sh,
+#   • własną usługę systemd qlserver-<nazwa>.service — uruchamia serwer
+#     w sesji screen 'start-<nazwa>' i automatycznie podnosi go po crashu.
 # Owner (qlx_owner) oraz hasła rcon/stats dziedziczone są z pierwszego start.sh.
-#
-# UWAGA: instancje dodawane przez add_server.sh NIE są rejestrowane w systemd
-# i NIE uruchamiają się automatycznie. Uruchamiasz je ręcznie skryptem
-# start-<nazwa>.sh (najlepiej w screen/tmux lub nohup). Jeśli chcesz autostart,
-# napisz własny unit albo zrób to ręcznie na bazie szablonu z sekcji 9.
 ADD_SCRIPT="$QLDS_DIR/add_server.sh"
 log "Tworzę narzędzie dodawania serwerów: $ADD_SCRIPT"
 {
   echo '#!/usr/bin/env bash'
-  echo '# add_server.sh — dodaje kolejny serwer QL (instancję).'
+  echo '# add_server.sh — dodaje kolejny serwer QL (instancję) z autostartem i screenem.'
   echo '# Użycie:  ./add_server.sh [nazwa] [port]   (bez argumentów pyta interaktywnie)'
-  echo '# Instancja NIE jest rejestrowana w systemd — uruchamiasz ręcznie ./start-<nazwa>.sh'
+  echo '# Tworzy też usługę systemd qlserver-<nazwa> (screen + Restart=on-failure).'
   echo 'set -euo pipefail'
   echo "QLDS_DIR=\"$QLDS_DIR\""
+  echo "WHO=\"$(whoami)\""
   cat <<'ADDBODY'
 c_ok="\033[1;32m"; c_warn="\033[1;33m"; c_err="\033[1;31m"; c_i="\033[1;36m"; c_e="\033[0m"
 log(){ echo -e "${c_i}[*]${c_e} $*"; }; ok(){ echo -e "${c_ok}[OK]${c_e} $*"; }
@@ -726,23 +729,49 @@ exec ./run_server_x64_minqlx.sh \\
 START_EOF
 chmod +x "$START"
 
-# 6) BEZ systemd — instancja uruchamiana ręcznie.
-#    Jeśli chcesz autostart przy boocie, utwórz własny unit na wzór qlserver.service
-#    (sekcja 9 instalatora) i wskaż w nim ExecStart=${START}.
+# 6) Usługa systemd dla instancji — screen + autorestart.
+#    Wzorzec identyczny jak dla qlserver-tdm/ffa/ft: screen -DmS (foreground)
+#    pod Type=simple, dzięki czemu Restart=on-failure faktycznie podnosi serwer
+#    po crashu. Konsolę podłączasz przez:  screen -r start-<nazwa>
+SCREEN_NAME="start-${SAFE}"
+UNIT="/etc/systemd/system/qlserver-${SAFE}.service"
+log "Instaluję usługę systemd: ${UNIT}"
+sudo tee "$UNIT" >/dev/null <<UEOF
+[Unit]
+Description=Quake Live Dedicated Server (minqlx) - ${SAFE} [screen: ${SCREEN_NAME}]
+After=network.target redis-server.service
+Wants=redis-server.service
 
-ok "Dodano serwer '${SAFE}' (BEZ rejestracji w systemd)."
+[Service]
+Type=simple
+User=${WHO}
+WorkingDirectory=${QLDS_DIR}
+ExecStart=/usr/bin/screen -DmS ${SCREEN_NAME} ${START}
+ExecStop=/usr/bin/screen -S ${SCREEN_NAME} -X quit
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UEOF
+sudo systemctl daemon-reload
+sudo systemctl enable "qlserver-${SAFE}.service"
+
+ok "Dodano serwer '${SAFE}' (usługa qlserver-${SAFE}.service, screen ${SCREEN_NAME})."
 echo "  config:    $CFG"
 echo "  start:     $START"
 echo "  port:      UDP $PORT (rcon TCP $((PORT+1000)))"
-echo "  uruchom:   $START"
-echo "  w tle:     nohup $START > $QLDS_DIR/${SAFE}.log 2>&1 &"
-echo "  w screen:  screen -dmS qlserver-${SAFE} $START   (potem: screen -r qlserver-${SAFE})"
+echo "  start:     sudo systemctl start qlserver-${SAFE}"
+echo "  stop:      sudo systemctl stop qlserver-${SAFE}"
+echo "  status:    sudo systemctl status qlserver-${SAFE}"
+echo "  konsola:   screen -r ${SCREEN_NAME}   (odlacz: Ctrl+A, D)"
+echo "  logi:      sudo journalctl -u qlserver-${SAFE} -f"
 echo "  firewall:  otworz port UDP $PORT"
 echo "  panel:     aby zarzadzac nim w panelu, dodaj wpis do qlpanel/servers.json"
 ADDBODY
 } > "$ADD_SCRIPT"
 chmod +x "$ADD_SCRIPT"
-ok "Gotowe: $ADD_SCRIPT — uruchom kiedykolwiek, by dodać kolejny serwer (bez systemd)."
+ok "Gotowe: $ADD_SCRIPT — uruchom kiedykolwiek, by dodać kolejny serwer (z autostartem + screen)."
 
 # Opcjonalnie: dodaj kolejne serwery już teraz (tylko w trybie interaktywnym).
 if [ -t 0 ]; then
@@ -1391,8 +1420,10 @@ GTCFG
 
   # 11c. Generator skryptu startowego + usługi systemd dla instancji trybu.
   #   Serwer uruchamiany jest w sesji screen o nazwie start-<gt>.
-  #   Systemd (Type=oneshot RemainAfterExit) startuje screen przy bootowaniu
-  #   i umożliwia ręczne podłączenie:  screen -r start-<gt>
+  #   Usługa: Type=simple + screen -DmS (foreground) + Restart=on-failure
+  #   — gdy serwer QL padnie, screen kończy się razem z nim, a systemd
+  #     automatycznie podnosi instancję od nowa.
+  #   Konsolę podłączysz przez:  screen -r start-<gt>
   #   $1 nazwa(gt)  $2 port_udp
   write_gt_service() {
     local gt="$1" port="$2"
@@ -1424,12 +1455,13 @@ After=network.target redis-server.service
 Wants=redis-server.service
 
 [Service]
-Type=oneshot
-RemainAfterExit=yes
+Type=simple
 User=$(whoami)
 WorkingDirectory=${QLDS_DIR}
-ExecStart=/usr/bin/screen -dmS ${screen_name} ${start}
+ExecStart=/usr/bin/screen -DmS ${screen_name} ${start}
 ExecStop=/usr/bin/screen -S ${screen_name} -X quit
+Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
@@ -1437,7 +1469,7 @@ UNITEOF
       sudo systemctl daemon-reload
       sudo systemctl enable "qlserver-${gt}.service"
     fi
-    ok "  usługa: qlserver-${gt}  (port UDP ${port}, screen: ${screen_name})"
+    ok "  usługa: qlserver-${gt}  (port UDP ${port}, screen: ${screen_name}, autorestart: on-failure/5s)"
   }
 
   # 11d. Konfiguracje trybów — z lokalnego katalogu configs and mappool/ lub generowane.
@@ -1547,10 +1579,10 @@ TEST: wejdź na serwer i wpisz na czacie:  !myperm
   -> jeśli pokaże poziom uprawnień > 0, jesteś rozpoznany jako właściciel.
 
 KOLEJNE SERWERY: uruchom  ${QLDS_DIR}/add_server.sh  (lub  add_server.sh <nazwa> <port>).
-  Każdy kolejny serwer ma własny port i własny plik baseq3/<nazwa>.cfg.
-  WAŻNE: instancje dodawane przez add_server.sh NIE są rejestrowane w systemd
-  i NIE startują automatycznie. Uruchamiasz je ręcznie w screenie:
-      screen -dmS start-<nazwa> ${QLDS_DIR}/start-<nazwa>.sh
+  Każdy kolejny serwer ma własny port, własny plik baseq3/<nazwa>.cfg
+  oraz własną usługę systemd qlserver-<nazwa> (screen start-<nazwa> + autorestart).
+      sudo systemctl start qlserver-<nazwa>
+      screen -r start-<nazwa>     # podłączenie do konsoli (odłącz: Ctrl+A, D)
   Pamiętaj otworzyć w firewallu port UDP każdego z nich.
 
 AKTUALIZACJA: uruchom ten skrypt ponownie (zaktualizuje QLDS, minqlx i pluginy).
