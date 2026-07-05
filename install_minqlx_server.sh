@@ -10,7 +10,8 @@
 #    4. Kopiuje binarki minqlx do katalogu serwera
 #    5. Klonuje pluginy MinoMino (oficjalne) oraz BarelyMiSSeD (dodatkowe)
 #    6. Instaluje zależności pip pluginów
-#    7. Generuje server.cfg, skrypt startowy oraz usługę systemd
+#    7. Generuje server.cfg oraz skrypty startowe (BEZ systemd, BEZ screen —
+#       serwery uruchamiasz ręcznie: bash start-tdm.sh / start-ffa.sh / start-ft.sh)
 #
 #  Wymagania: Debian 10/11/12 lub Ubuntu 20.04/22.04/24.04 (system apt),
 #             architektura x86_64, użytkownik z prawami sudo (NIE root).
@@ -46,12 +47,9 @@ set -euo pipefail
 : "${QLDS_DIR:=$HOME/qlds}"          # tu wyląduje serwer QL + minqlx
 : "${BUILD_DIR:=$HOME/minqlx-build}" # tu klonujemy i kompilujemy źródła
 
-# Czy zainstalować usługę systemd (autostart). 1 = tak, 0 = nie
-: "${INSTALL_SYSTEMD:=1}"
-
 # Czy zainstalować gotowe serwery trybów FFA/TDM/FT (z dołączonymi factory
-# crobartie). 1 = tak. Gdy włączone, instalator NIE uruchamia generycznego
-# qlserver (server.cfg) automatycznie — zamiast tego włącza qlserver-ffa/tdm/ft.
+# crobartie). 1 = tak. Generuje skrypty startowe start-<gt>.sh, które
+# uruchamiasz ręcznie (bez systemd, bez screen — serwery sam odpalasz).
 : "${INSTALL_GAMETYPE_SERVERS:=1}"
 
 # Repozytoria (zwykle nie trzeba zmieniać)
@@ -610,56 +608,25 @@ EOF
 chmod +x "$START"
 ok "Skrypt startowy: $START"
 
-# ── 9. systemd ───────────────────────────────────────────────────────────────
-# Wzorzec: screen -DmS <name> <cmd>  (D = foreground/nie forkuj, m = ignoruj $STY).
-# Dzięki temu screen jest głównym procesem usługi — gdy serwer QL padnie,
-# screen się kończy, a systemd (Restart=on-failure) podnosi instancję na nowo.
-# Konsolę serwera podłączasz w dowolnej chwili przez:  screen -r start-ql
-if [ "$INSTALL_SYSTEMD" = "1" ]; then
-  log "Instaluję usługę systemd (autostart + screen + autorestart)..."
-  UNIT="/etc/systemd/system/qlserver.service"
-  sudo tee "$UNIT" >/dev/null <<EOF
-[Unit]
-Description=Quake Live Dedicated Server (minqlx) [screen: start-ql]
-After=network.target redis-server.service
-Wants=redis-server.service
-
-[Service]
-Type=simple
-User=$(whoami)
-WorkingDirectory=${QLDS_DIR}
-ExecStart=/usr/bin/screen -DmS start-ql ${QLDS_DIR}/start.sh
-ExecStop=/usr/bin/screen -S start-ql -X quit
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-  sudo systemctl daemon-reload
-  if [ "$INSTALL_GAMETYPE_SERVERS" = "1" ]; then
-    ok "Usługa qlserver.service zainstalowana, ale NIE włączona (używasz serwerów trybów FFA/TDM/FT; generyczny server.cfg dzieliłby port 27960 z tdm)."
-  else
-    sudo systemctl enable qlserver.service
-    ok "Usługa qlserver.service zainstalowana (jeszcze nieuruchomiona). Konsola: screen -r start-ql"
-  fi
-fi
+# ── 9. Skrypt startowy (bez systemd, bez screen) ─────────────────────────────
+# Instalator NIE tworzy usługi systemd ani nie wrapuje serwera w screen.
+# Serwer uruchamiasz ręcznie:  bash ${QLDS_DIR}/start.sh
+# (jeśli chcesz mieć konsolę w tle — sam użyj np. screen/tmux/nohup).
+ok "Skrypt startowy gotowy: ${QLDS_DIR}/start.sh — uruchom ręcznie: bash start.sh"
 
 # ── 10. Narzędzie do dodawania kolejnych serwerów QL ─────────────────────────
 # Kolejne serwery używają TEJ SAMEJ instalacji QLDS/minqlx, ale mają:
 #   • własny port UDP,
 #   • własny plik konfiguracji baseq3/<nazwa>.cfg (pierwszy ma server.cfg),
-#   • własny skrypt start-<nazwa>.sh,
-#   • własną usługę systemd qlserver-<nazwa>.service — uruchamia serwer
-#     w sesji screen 'start-<nazwa>' i automatycznie podnosi go po crashu.
+#   • własny skrypt start-<nazwa>.sh (uruchamiany ręcznie — bez systemd/screen).
 # Owner (qlx_owner) oraz hasła rcon/stats dziedziczone są z pierwszego start.sh.
 ADD_SCRIPT="$QLDS_DIR/add_server.sh"
 log "Tworzę narzędzie dodawania serwerów: $ADD_SCRIPT"
 {
   echo '#!/usr/bin/env bash'
-  echo '# add_server.sh — dodaje kolejny serwer QL (instancję) z autostartem i screenem.'
+  echo '# add_server.sh — dodaje kolejny serwer QL (instancję): tworzy config i skrypt startowy.'
   echo '# Użycie:  ./add_server.sh [nazwa] [port]   (bez argumentów pyta interaktywnie)'
-  echo '# Tworzy też usługę systemd qlserver-<nazwa> (screen + Restart=on-failure).'
+  echo '# Serwer uruchamiasz ręcznie:  bash start-<nazwa>.sh   (BEZ systemd, BEZ screen).'
   echo 'set -euo pipefail'
   echo "QLDS_DIR=\"$QLDS_DIR\""
   echo "WHO=\"$(whoami)\""
@@ -729,49 +696,18 @@ exec ./run_server_x64_minqlx.sh \\
 START_EOF
 chmod +x "$START"
 
-# 6) Usługa systemd dla instancji — screen + autorestart.
-#    Wzorzec identyczny jak dla qlserver-tdm/ffa/ft: screen -DmS (foreground)
-#    pod Type=simple, dzięki czemu Restart=on-failure faktycznie podnosi serwer
-#    po crashu. Konsolę podłączasz przez:  screen -r start-<nazwa>
-SCREEN_NAME="start-${SAFE}"
-UNIT="/etc/systemd/system/qlserver-${SAFE}.service"
-log "Instaluję usługę systemd: ${UNIT}"
-sudo tee "$UNIT" >/dev/null <<UEOF
-[Unit]
-Description=Quake Live Dedicated Server (minqlx) - ${SAFE} [screen: ${SCREEN_NAME}]
-After=network.target redis-server.service
-Wants=redis-server.service
-
-[Service]
-Type=simple
-User=${WHO}
-WorkingDirectory=${QLDS_DIR}
-ExecStart=/usr/bin/screen -DmS ${SCREEN_NAME} ${START}
-ExecStop=/usr/bin/screen -S ${SCREEN_NAME} -X quit
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-UEOF
-sudo systemctl daemon-reload
-sudo systemctl enable "qlserver-${SAFE}.service"
-
-ok "Dodano serwer '${SAFE}' (usługa qlserver-${SAFE}.service, screen ${SCREEN_NAME})."
+# 6) Bez systemd, bez screen — serwer uruchamiasz ręcznie skryptem startowym.
+ok "Dodano serwer '${SAFE}' (skrypt startowy: ${START})."
 echo "  config:    $CFG"
 echo "  start:     $START"
 echo "  port:      UDP $PORT (rcon TCP $((PORT+1000)))"
-echo "  start:     sudo systemctl start qlserver-${SAFE}"
-echo "  stop:      sudo systemctl stop qlserver-${SAFE}"
-echo "  status:    sudo systemctl status qlserver-${SAFE}"
-echo "  konsola:   screen -r ${SCREEN_NAME}   (odlacz: Ctrl+A, D)"
-echo "  logi:      sudo journalctl -u qlserver-${SAFE} -f"
+echo "  uruchom:   bash ${START}"
 echo "  firewall:  otworz port UDP $PORT"
 echo "  panel:     aby zarzadzac nim w panelu, dodaj wpis do qlpanel/servers.json"
 ADDBODY
 } > "$ADD_SCRIPT"
 chmod +x "$ADD_SCRIPT"
-ok "Gotowe: $ADD_SCRIPT — uruchom kiedykolwiek, by dodać kolejny serwer (z autostartem + screen)."
+ok "Gotowe: $ADD_SCRIPT — uruchom kiedykolwiek, by dodać kolejny serwer (tworzy config i skrypt startowy)."
 
 # Opcjonalnie: dodaj kolejne serwery już teraz (tylko w trybie interaktywnym).
 if [ -t 0 ]; then
@@ -786,7 +722,8 @@ fi
 
 # ── 11. Serwery trybów FFA / TDM / FT (+ dołączone factory) ──────────────────
 # Wgrywa plik z własnymi factory (gametypes.factories) oraz trzy gotowe,
-# OCZYSZCZONE konfiguracje trybów i usługi systemd dla każdej z nich.
+# OCZYSZCZONE konfiguracje trybów i skrypty startowe start-<gt>.sh dla każdej
+# z nich (serwery uruchamiasz ręcznie — bez systemd, bez screen).
 # Porty: tdm=27960, ffa=27961, ft=27962.
 if [ "$INSTALL_GAMETYPE_SERVERS" = "1" ]; then
   log "Instaluję serwery trybów FFA/TDM/FT + factory..."
@@ -1418,18 +1355,13 @@ GTCFG
     ok "  konfiguracja: baseq3/${gt}.cfg  (startup: ${startup})"
   }
 
-  # 11c. Generator skryptu startowego + usługi systemd dla instancji trybu.
-  #   Serwer uruchamiany jest w sesji screen o nazwie start-<gt>.
-  #   Usługa: Type=simple + screen -DmS (foreground) + Restart=on-failure
-  #   — gdy serwer QL padnie, screen kończy się razem z nim, a systemd
-  #     automatycznie podnosi instancję od nowa.
-  #   Konsolę podłączysz przez:  screen -r start-<gt>
+  # 11c. Generator skryptu startowego dla instancji trybu (BEZ systemd/screen).
+  #   Serwer uruchamiasz ręcznie:  bash ${QLDS_DIR}/start-<gt>.sh
   #   $1 nazwa(gt)  $2 port_udp
   write_gt_service() {
     local gt="$1" port="$2"
     local start="$QLDS_DIR/start-${gt}.sh"
     local home="$QLDS_DIR/instances/${gt}"
-    local screen_name="start-${gt}"
     mkdir -p "$home"
     cat > "$start" <<STARTEOF
 #!/usr/bin/env bash
@@ -1447,29 +1379,7 @@ exec ./run_server_x64_minqlx.sh \\
   +exec ${gt}.cfg
 STARTEOF
     chmod +x "$start"
-    if [ "$INSTALL_SYSTEMD" = "1" ]; then
-      sudo tee "/etc/systemd/system/qlserver-${gt}.service" >/dev/null <<UNITEOF
-[Unit]
-Description=Quake Live Dedicated Server (minqlx) - ${gt} [screen: ${screen_name}]
-After=network.target redis-server.service
-Wants=redis-server.service
-
-[Service]
-Type=simple
-User=$(whoami)
-WorkingDirectory=${QLDS_DIR}
-ExecStart=/usr/bin/screen -DmS ${screen_name} ${start}
-ExecStop=/usr/bin/screen -S ${screen_name} -X quit
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-UNITEOF
-      sudo systemctl daemon-reload
-      sudo systemctl enable "qlserver-${gt}.service"
-    fi
-    ok "  usługa: qlserver-${gt}  (port UDP ${port}, screen: ${screen_name}, autorestart: on-failure/5s)"
+    ok "  skrypt startowy: start-${gt}.sh  (port UDP ${port}) — uruchom: bash start-${gt}.sh"
   }
 
   # 11d. Konfiguracje trybów — z lokalnego katalogu configs and mappool/ lub generowane.
@@ -1523,9 +1433,10 @@ UNITEOF
   write_gt_service "ffa" "27961"
   write_gt_service "ft"  "27962"
 
-  ok "Serwery trybów gotowe. Start: sudo systemctl start qlserver-{tdm,ffa,ft}"
-  ok "Podłącz do konsoli:  screen -r start-tdm  /  screen -r start-ffa  /  screen -r start-ft"
-  ok "Odłącz od screena:   Ctrl+A, D"
+  ok "Serwery trybów gotowe. Uruchom ręcznie:"
+  ok "  bash ${QLDS_DIR}/start-tdm.sh"
+  ok "  bash ${QLDS_DIR}/start-ffa.sh"
+  ok "  bash ${QLDS_DIR}/start-ft.sh"
   warn "Otwórz w firewallu porty UDP: 27960 (tdm), 27961 (ffa), 27962 (ft)."
 fi
 
@@ -1548,41 +1459,26 @@ ZANIM WYSTARTUJESZ — sprawdź:
   • lista pluginów (qlx_plugins) w server.cfg
   • otwórz w firewallu port UDP ${NET_PORT}
 
-URUCHOMIENIE (serwery trybów FFA/TDM/FT — każdy w osobnym screenie):
-  Ręcznie (przez systemd):
-      sudo systemctl start qlserver-tdm
-      sudo systemctl start qlserver-ffa
-      sudo systemctl start qlserver-ft
-
-  Po reboot — serwery startują AUTOMATYCZNIE przez systemd (usługi włączone).
-
-  Podłącz się do konsoli serwera:
-      screen -r start-tdm
-      screen -r start-ffa
-      screen -r start-ft
-  Odłącz od screena (serwer nadal działa):  Ctrl+A, D
-  Lista aktywnych screenów:                 screen -ls
-  Zatrzymaj serwer:  sudo systemctl stop qlserver-<gt>
-  Status:            sudo systemctl status qlserver-<gt>
-  Logi systemd:      sudo journalctl -u qlserver-<gt> -f
-EOF
-if [ "$INSTALL_SYSTEMD" = "1" ]; then
-cat <<EOF
+URUCHOMIENIE (ręcznie — instalator NIE tworzy usług systemd ani nie wrapuje w screen):
+  Serwery trybów FFA/TDM/FT:
+      bash ${QLDS_DIR}/start-tdm.sh
+      bash ${QLDS_DIR}/start-ffa.sh
+      bash ${QLDS_DIR}/start-ft.sh
 
   Generyczny serwer (server.cfg, port ${NET_PORT}):
-      Ręcznie:  screen -dmS start-ql ${QLDS_DIR}/start.sh
-EOF
-fi
-cat <<EOF
+      bash ${QLDS_DIR}/start.sh
+
+  Chcesz odpiąć konsolę? Sam użyj np. screen/tmux/nohup:
+      screen -dmS start-tdm bash ${QLDS_DIR}/start-tdm.sh
+      tmux new -d -s start-tdm "bash ${QLDS_DIR}/start-tdm.sh"
 
 TEST: wejdź na serwer i wpisz na czacie:  !myperm
   -> jeśli pokaże poziom uprawnień > 0, jesteś rozpoznany jako właściciel.
 
 KOLEJNE SERWERY: uruchom  ${QLDS_DIR}/add_server.sh  (lub  add_server.sh <nazwa> <port>).
   Każdy kolejny serwer ma własny port, własny plik baseq3/<nazwa>.cfg
-  oraz własną usługę systemd qlserver-<nazwa> (screen start-<nazwa> + autorestart).
-      sudo systemctl start qlserver-<nazwa>
-      screen -r start-<nazwa>     # podłączenie do konsoli (odłącz: Ctrl+A, D)
+  oraz własny skrypt start-<nazwa>.sh — uruchamiasz go ręcznie:
+      bash ${QLDS_DIR}/start-<nazwa>.sh
   Pamiętaj otworzyć w firewallu port UDP każdego z nich.
 
 AKTUALIZACJA: uruchom ten skrypt ponownie (zaktualizuje QLDS, minqlx i pluginy).
