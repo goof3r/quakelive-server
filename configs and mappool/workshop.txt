@@ -1,57 +1,54 @@
 // =============================================================
-//  workshop.txt � Quake Live dedicated server
-//  Wygenerowany automatycznie. Jeden ID per linia.
-//  Umie�� w: ~/qlds/baseq3/workshop.txt
+//  workshop.txt — Quake Live dedicated server
+//  Jeden ID per linia. Komentarz obok = tytuł + nazwy map (BSP).
+//  Umieść w: ~/qlds/baseq3/workshop.txt
 // =============================================================
 
-// --- Officjalne paczki map / PPak (id Software / sponge) ---
-539421606
-539421982
+// --- Oficjalne paczki id Software ---
+539421606  // Quake Live Extras Pack — arenagate, blastradius, bloodrunblue, campgroundsblue, cobaltstation, ... (14 map)
+539421982  // Quake Live Holiday Pack — silentfright, silentnight, spacecamp, superspace, wintersedge
 
-// --- Mapy dodatkowe i narz�dzia ---
-623144451
-546664071
-547252823
-573808557
-583820600
-573807159
-584964611
-564894881
-575312620
-586817666
-584984610
-565025333
-617896584
-564946744
-641499246
-641587915
-637350852
-641575854
-643615147
-675534589
-679928531
-679928822
-568582691
-582665687
-584815070
-673213646
-726131097
-726132863
-726133798
-726134197
-663160788
-774095795
-803438741
-824405313
-827249184
-827250713
-827252336
-824405003
-850146040
-852034378
-
-// --- Mapy 6+ (leftbehind, namelessplace, overlord) ---
-638618725
-638531198
-637351306
-
+// --- Community maps & packs ---
+623144451  // Maps for crobartie's server (modified) — ts_dm5, ts_dm5tmp
+546664071  // Rustgrad — rustgrad
+547252823  // 6+ (Q3: 6++) — 6++
+573808557  // Iron Yard — fr3dm1
+583820600  // Eulogy — jex3dm1
+573807159  // Q-Fraggel Maps — qfraggel1, qfraggel2a, qfraggel3ffa, qfraggel3tdm
+584964611  // WdW Maps — sin, wdw3dm3, wdw3dm4, wdw3team1
+564894881  // Storm Maps — storm3dm2, storm3tourney1, storm3tourney2, storm3tourney4, storm3tourney5, ... (7 map)
+575312620  // OSP Map Pack — ospca1, ospctf1, ospctf2, ospdm1, ospdm2, ... (18 map)
+586817666  // Opium — opium
+584984610  // Grindill 2.0 — qxdm4_v2
+565025333  // Mars — marsv1
+638618725  // dAdeX — dadex
+638531198  // Neorganic Epiphany — dubneoc
+637351306  // Paranoid — ct3dm4
+617896584  // Geotechnic — phantq3dm6
+564946744  // Polo — polo3dm2, polo3dm3, polo3dm4, polo3dm5, polo3ctf1, polo3t1
+641499246  // Dynasty — pasdm1
+641587915  // ? — nie udało się odczytać strony workshopu
+637350852  // MaXimus — lsjgcoop
+641575854  // Arena 13 — alm3dm4
+643615147  // Last Trip — rota3dm1
+675534589  // Burning Reminders — burning1
+679928531  // Sublevel 27 — q3dmp4
+679928822  // Tech Edge — q3dmp11
+568582691  // raztrainql_beta3 — raztrainql_beta3 (trening: railshot / rocket-jumps)
+582665687  // cos1_beta7b — cos1_beta7b
+584815070  // HMF Clan Practice Map — ? (BSP nie podany w opisie)
+673213646  // Ring of Pain — ? (aim trainer z Q3 Arena; BSP nie podany)
+726131097  // Memento Mori — q3shw14
+726132863  // Time to die — q3shw19
+726133798  // Destroyer — q3shw21
+726134197  // Simple brushes — q3shw22
+663160788  // ? — nie udało się odczytać strony workshopu
+774095795  // FrozenFortress — frozenfortress
+803438741  // Temple of Acid — ? (BSP nie podany w opisie)
+824405313  // CUBEdotMAP — cubedotmap
+827249184  // Fortress 2089 — fortress2089
+827250713  // Campgrounds After — campgroundsafter
+827252336  // Deep Purple — akutatourney6
+824405003  // Arenaholica — bbq3dm1
+850146040  // Hydra — hydra
+852034378  // Penumbra — penumbra
