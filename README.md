@@ -1,18 +1,27 @@
 # Quake Live Dedicated Server + minqlx — automatyczny instalator
 
+[🇬🇧 English version](README.en.md)
+
 Skrypt `install_minqlx_server.sh` stawia od zera serwer Quake Live (QLDS) z
 minqlx i kompletem pluginów (MinoMino + BarelyMiSSeD + tjone270 + kilka
 zewnętrznych) na czystym Debianie/Ubuntu (x86_64).
 
-**Każda** instancja (generyczny `qlserver`, serwery trybów FFA/TDM/FT oraz
-serwery dodane przez `add_server.sh`) działa w sesji **GNU screen**
-(`start-ql`, `start-ffa`, `start-tdm`, `start-ft`, `start-<nazwa>`) pod usługą
-systemd typu `simple` z `Restart=on-failure` — **startują automatycznie po
-każdym reboot** oraz **automatycznie wstają po crashu** (po 5 s).
+**Instalator generuje tylko skrypty startowe** (`start.sh`, `start-tdm.sh`,
+`start-ffa.sh`, `start-ft.sh`, `start-<nazwa>.sh`) — **nie tworzy usług
+systemd i nie wrapuje serwera w screen**. Serwery uruchamiasz ręcznie:
 
-Wzorzec usługi: `ExecStart=/usr/bin/screen -DmS <name> <start-script>`
-(`-D` trzyma screen w foreground, dzięki czemu systemd widzi proces i może
-go restartować). Konsolę podłączasz przez `screen -r <name>`.
+```bash
+bash ~/qlds/start-tdm.sh
+bash ~/qlds/start-ffa.sh
+bash ~/qlds/start-ft.sh
+```
+
+Jeśli chcesz mieć konsolę w tle, sam użyj np. `screen` / `tmux` / `nohup`:
+
+```bash
+screen -dmS start-tdm bash ~/qlds/start-tdm.sh
+tmux new -d -s start-tdm "bash ~/qlds/start-tdm.sh"
+```
 
 ## Wymagania
 
@@ -26,7 +35,7 @@ go restartować). Konsolę podłączasz przez `screen -r <name>`.
 QLX_OWNER=76561198799965164 \
 RCON_PASSWORD=mojeRconHaslo \
 STATS_PASSWORD=mojeStatsHaslo \
-bash <(curl -fsSL https://raw.githubusercontent.com/goof3r/rpi5/master/quakelive-server/install_minqlx_server.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/goof3r/quakelive-server/master/install_minqlx_server.sh)
 ```
 
 `bash <(curl ...)` zachowuje stdin do terminala — interaktywne pytanie
@@ -36,8 +45,8 @@ zadziała, ale po prostu pominie ten prompt.
 ## Instalacja z klona repo (zalecana)
 
 ```bash
-git clone https://github.com/goof3r/rpi5.git
-cd rpi5/quakelive-server
+git clone https://github.com/goof3r/quakelive-server.git
+cd quakelive-server
 QLX_OWNER=76561198799965164 ./install_minqlx_server.sh
 ```
 
@@ -61,47 +70,39 @@ W tym wariancie instalator automatycznie użyje lokalnych plików z repo:
 | `NET_PORT` | `27960` | port UDP bazowego serwera |
 | `RCON_PASSWORD` | `zmien_to_haslo_rcon` | hasło rcon (ZMIEŃ) |
 | `STATS_PASSWORD` | `zmien_to_haslo_stats` | hasło zmq stats (ZMIEŃ) |
-| `INSTALL_SYSTEMD` | `1` | `0` = nie instaluj usług systemd |
 | `INSTALL_GAMETYPE_SERVERS` | `1` | `0` = nie instaluj serwerów FFA/TDM/FT |
 | `QLDS_DIR` | `$HOME/qlds` | gdzie wyląduje serwer |
 
 SteamID64 znajdziesz na <https://steamid.io>.
 
-## Zarządzanie serwerami trybów (screen + systemd)
+## Uruchamianie serwerów trybów
 
-Każdy z trzech serwerów działa w osobnej sesji GNU screen:
+Instalator tworzy trzy skrypty startowe:
 
-| Tryb | Port UDP | Sesja screen | Usługa systemd |
-|---|---|---|---|
-| TDM | 27960 | `start-tdm` | `qlserver-tdm` |
-| FFA | 27961 | `start-ffa` | `qlserver-ffa` |
-| FT  | 27962 | `start-ft`  | `qlserver-ft`  |
+| Tryb | Port UDP | Skrypt startowy |
+|---|---|---|
+| TDM | 27960 | `~/qlds/start-tdm.sh` |
+| FFA | 27961 | `~/qlds/start-ffa.sh` |
+| FT  | 27962 | `~/qlds/start-ft.sh`  |
 
 ```bash
-# Start (po instalacji lub po ręcznym zatrzymaniu):
-sudo systemctl start qlserver-tdm
-sudo systemctl start qlserver-ffa
-sudo systemctl start qlserver-ft
+# Uruchom (foreground, w bieżącej sesji terminala):
+bash ~/qlds/start-tdm.sh
 
-# Podłącz się do konsoli serwera:
-screen -r start-tdm
-screen -r start-ffa
-screen -r start-ft
+# W tle w sesji screen (opcjonalnie):
+screen -dmS start-tdm bash ~/qlds/start-tdm.sh
+screen -r start-tdm            # podłącz konsolę (odłącz: Ctrl+A, D)
+screen -ls                     # lista aktywnych sesji
 
-# Odłącz od screena (serwer nadal działa):  Ctrl+A, D
+# W tle w sesji tmux (opcjonalnie):
+tmux new -d -s start-tdm "bash ~/qlds/start-tdm.sh"
+tmux attach -t start-tdm       # podłącz konsolę (odłącz: Ctrl+B, D)
 
-# Lista aktywnych sesji screen:
-screen -ls
-
-# Zatrzymaj serwer:
-sudo systemctl stop qlserver-ft
-
-# Status / logi:
-sudo systemctl status qlserver-tdm
-sudo journalctl -u qlserver-ffa -f
+# Zatrzymaj: przełącz się do sesji i wpisz w konsoli minqlx  quit
 ```
 
-**Po reboot** — wszystkie trzy serwery startują automatycznie przez systemd.
+**Po reboot** — serwery **nie** startują automatycznie. Uruchom je ręcznie
+(lub dodaj sobie własny wpis w `crontab -e` z `@reboot`, jeśli chcesz).
 
 ## Definicje trybów gry (gametypes-factories)
 
@@ -129,21 +130,19 @@ Plik trafia do `$QLDS_DIR/baseq3/scripts/gametypes.factories` podczas instalacji
 ~/qlds/add_server.sh duel 27970   # od razu z argumentami
 ```
 
-Tworzy `baseq3/<nazwa>.cfg`, `start-<nazwa>.sh`, katalog `instances/<nazwa>/`
-oraz usługę systemd `qlserver-<nazwa>.service` (screen `start-<nazwa>` +
-`Restart=on-failure`). Usługa jest od razu włączona (autostart po reboot).
+Tworzy `baseq3/<nazwa>.cfg`, `start-<nazwa>.sh` oraz katalog
+`instances/<nazwa>/`. Uruchamiasz serwer ręcznie:
 
 ```bash
-sudo systemctl start qlserver-duel
-screen -r start-duel              # podłączenie do konsoli (odłącz: Ctrl+A, D)
-sudo journalctl -u qlserver-duel -f
+bash ~/qlds/start-duel.sh
 ```
 
 Otwórz w firewallu port UDP (oraz `port+1000` TCP dla rcon).
 
 ## Co instaluje skrypt
 
-1. apt: python3-dev, redis-server, build-essential, lib32gcc, **screen**, ...
+1. apt: python3-dev, redis-server, build-essential, lib32gcc, screen (pakiet do
+   opcjonalnego użycia), ...
 2. SteamCMD + QLDS (app 349090, login anonymous)
 3. Kompilacja minqlx ze źródeł (MinoMino/minqlx)
 4. Pluginy (w kolejności, ostatni wygrywa):
@@ -157,7 +156,7 @@ Otwórz w firewallu port UDP (oraz `port+1000` TCP dla rcon).
 6. `server.cfg`, `start.sh`, `workshop.txt`
 7. Konfiguracje trybów z `configs and mappool/` (ffa/tdm/ft.cfg + mapoole)
 8. `gametypes.factories` (10 definicji trybów)
-9. Serwery FFA/TDM/FT w screen + usługi systemd (autostart po reboot)
+9. Skrypty startowe `start-tdm.sh` / `start-ffa.sh` / `start-ft.sh`
 10. `add_server.sh` do późniejszych instancji
 
 ## Aktualizacja
