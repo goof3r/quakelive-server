@@ -63,6 +63,7 @@ QUEUE_RAW="https://raw.githubusercontent.com/Melodeiro/minqlx-plugins_mattiZed/m
 AUTOSPEC_RAW="https://raw.githubusercontent.com/dsverdlo/minqlx-plugins/master/autospec.py"
 IOUONE_RAW="https://raw.githubusercontent.com/dsverdlo/minqlx-plugins/master/iouonegirl.py"  # klasa bazowa dla autospec
 CHECKPLAYERS_RAW="https://raw.githubusercontent.com/x0rnn/minqlx-plugins/master/checkplayers.py"
+WEAPONSPAWNFIXER_RAW="https://raw.githubusercontent.com/roasticle/minqlx-plugins/master/weaponspawnfixer.py"
 # Repo TEGO instalatora (źródło załatanego commands.py, gdy instalator uruchamiany
 # przez 'curl | bash' bez lokalnej kopii). Nadpiszesz np. forkując i ustawiając
 # COMMANDS_PY_URL=...  w środowisku przed uruchomieniem.
@@ -337,11 +338,13 @@ ok "Pluginy dodatkowe skopiowane (włączysz wybrane w server.cfg → qlx_plugin
 #   autospec     (dsverdlo)           — auto-spec przy nierównych drużynach;
 #                                        wymaga klasy bazowej iouonegirl.py + pip 'requests'
 #   checkplayers (x0rnn)              — !checkplayers: lista perm/ban/silence/leaver
+#   weaponspawnfixer (roasticle)      — wymusza g_weaponRespawn na starcie mapy/gry
+#                                        (obejście buga silnika QL ignorującego cvar)
 # UWAGA: są tylko POBIERANE (dostępne), ale NIE włączone w domyślnym server.cfg.
 # Włączają je dopiero konfiguracje trybów (qlx_plugins w ffa/tdm/ft.cfg).
 # Pluginów 'patch' i 'specvote' z tamtych cfg NIE pobieramy — to bespoke pluginy
 # konkretnego serwera (twarde, obce ustawienia), bezużyteczne na innym serwerze.
-log "Pobieram zewnętrzne pluginy (queue, autospec, checkplayers)..."
+log "Pobieram zewnętrzne pluginy (queue, autospec, checkplayers, weaponspawnfixer)..."
 fetch_plugin() {  # $1=URL  $2=docelowa_nazwa_pliku
   if curl -sfqL "$1" -o "$QLDS_DIR/minqlx-plugins/$2" && [ -s "$QLDS_DIR/minqlx-plugins/$2" ]; then
     ok "  pobrano: $2"
@@ -353,6 +356,7 @@ fetch_plugin "$QUEUE_RAW"        "queue.py"
 fetch_plugin "$AUTOSPEC_RAW"     "autospec.py"
 fetch_plugin "$IOUONE_RAW"       "iouonegirl.py"   # klasa bazowa wymagana przez autospec
 fetch_plugin "$CHECKPLAYERS_RAW" "checkplayers.py"
+fetch_plugin "$WEAPONSPAWNFIXER_RAW" "weaponspawnfixer.py"
 
 # ── 5c. Lokalne pluginy z katalogu minqlx-plugins/ (nadpisują wersje z repo) ─
 # Jeśli obok skryptu instalatora istnieje katalog minqlx-plugins/ (lokalny klon
@@ -407,12 +411,12 @@ mkdir -p "$QLDS_DIR/baseq3"
 
 # Pełna lista pluginów. Wstrzykiwana do server.cfg, a przy aktualizacji
 # synchronizowana również w już istniejącym server.cfg (patrz niżej).
-QLX_PLUGINS_LIST="plugin_manager, essentials, motd, permission, ban, silence, clan, names, log, workshop, aliases, autorestart, botmanager, branding, custom_votes, dictionary, disabled_commands, ips, onjoin, permaban, permissionlist, q3resolver, quiet, ratinglimiter, sv_fps, thirtysecwarn, votemanager, votestats, commands, serverhelp, permoverride"
+QLX_PLUGINS_LIST="plugin_manager, essentials, motd, permission, ban, silence, clan, names, log, workshop, weaponspawnfixer, aliases, autorestart, botmanager, branding, custom_votes, dictionary, disabled_commands, ips, onjoin, permaban, permissionlist, q3resolver, quiet, ratinglimiter, sv_fps, thirtysecwarn, votemanager, votestats, commands, serverhelp, permoverride"
 
 # Lista pluginów dla serwerów trybów (FFA/TDM/FT). Wzięta z dołączonych cfg-ów,
 # ale OCZYSZCZONA: usunięte 'irc' (na życzenie) oraz 'patch' i 'specvote' (bespoke
 # pluginy obcego serwera — nie istnieją w żadnym repo, blokowałyby ładowanie).
-GT_PLUGINS_LIST="plugin_manager, essentials, motd, permission, ban, clan, names, silence, log, balance, branding, workshop, queue, autospec, checkplayers, votestats, ips, aliases, botmanager, onjoin, serverhelp, permoverride"
+GT_PLUGINS_LIST="plugin_manager, essentials, motd, permission, ban, warmup_weapons, clan, names, silence, log, balance, branding, workshop, weaponspawnfixer, queue, autospec, checkplayers, votestats, ips, aliases, botmanager, onjoin, serverhelp, permoverride"
 
 if [ -f "$CFG" ]; then
   warn "server.cfg już istnieje — nie nadpisuję go w całości. Wzór: server.cfg.example."
@@ -502,9 +506,11 @@ set qlx_plugins            "__QLX_PLUGINS__"
 
 // --- Pluginy ZEWNĘTRZNE (pobierane przez instalator z repo innych autorów) ---
 // Dostępne, ale NIE włączone tutaj — używają ich konfiguracje trybów FFA/TDM/FT:
-//   queue        - kolejka graczy do gry (mattiZed/Melodeiro)
-//   autospec     - auto-spec przy nierównych drużynach (dsverdlo; wymaga requests)
-//   checkplayers - !checkplayers: gracze z perm/ban/silence/leaver (x0rnn)
+//   queue            - kolejka graczy do gry (mattiZed/Melodeiro)
+//   autospec         - auto-spec przy nierównych drużynach (dsverdlo; wymaga requests)
+//   checkplayers     - !checkplayers: gracze z perm/ban/silence/leaver (x0rnn)
+//   weaponspawnfixer - wymusza g_weaponRespawn na new_game/game_start (roasticle)
+//                      obejście buga silnika QL, który potrafi zignorować cvar
 // (UWAGA: 'balance' (MinoMino) + 'autospec' + 'queue' to trzy nakładające się
 //  systemy zarządzania drużynami/kolejką — włączaj świadomie, mogą sobie wchodzić
 //  w drogę. 'patch' i 'specvote' z obcych cfg celowo POMINIĘTE — bespoke, obce.)
