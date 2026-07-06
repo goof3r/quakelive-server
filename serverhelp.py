@@ -35,15 +35,24 @@
 set qlx_serverhelpShowAll "0"
 """
 
-import zlib
-
 import minqlx
 
-VERSION = "1.0"
+VERSION = "1.1"
 
-# Pula kolorów QL używana do podświetlenia nazwy komendy wg pluginu.
-# Pomijamy ^4 (zarezerwowane dla "[plugin_name]") i ^7 (neutralny tekst).
-PLUGIN_COLOR_PALETTE = ("^1", "^2", "^3", "^5", "^6")
+# Kolorystyka nazw komend w !help — mapowanie poziomu uprawnień na kod
+# koloru QL. Skala idzie od "bezpiecznego" zielonego do "root/danger"
+# czerwonego, żeby wzrokowo było widać, co jest publiczne, a co potrafi
+# wywalić serwer. ^4 jest zarezerwowany dla "[plugin_name]" w tej samej
+# linii — dlatego nie występuje w palecie.
+PERM_COLOR_PALETTE = {
+    0: "^2",  # zielony     — gracz (każdy)
+    1: "^3",  # żółty       — moderator
+    2: "^5",  # cyjan       — admin
+    3: "^6",  # magenta     — senior admin
+    4: "^9",  # jasnoszary  — head admin
+    5: "^1",  # czerwony    — owner (root)
+}
+PERM_COLOR_DEFAULT = "^7"  # perm > 5 (kastomizacje) — neutralny biały
 
 # Limity wysyłki — takie same jak w załatanym commands.py v1.1.
 MAX_TELL_LEN = 900
@@ -144,10 +153,13 @@ class serverhelp(minqlx.Plugin):
                 len(seen), caller_perm
             ),
         ]
-        for canonical in sorted(seen):
-            perm, names, plugin_name, usage = seen[canonical]
+        # Segregacja: najpierw perm 0, potem 1, 2, ... — w obrębie danej
+        # grupy alfabetycznie. Nazwa komendy dostaje kolor wg poziomu perm.
+        for canonical, (perm, names, plugin_name, usage) in sorted(
+            seen.items(), key=lambda kv: (kv[1][0], kv[0])
+        ):
             aliases = "/".join(names) if len(names) > 1 else canonical
-            color = self._plugin_color(plugin_name)
+            color = self._perm_color(perm)
             line = "{}{}{} ^7perm:{} ^4[{}]".format(color, prefix, aliases, perm, plugin_name)
             if usage:
                 line += " ^7{}".format(usage)
@@ -197,12 +209,10 @@ class serverhelp(minqlx.Plugin):
         return minqlx.RET_STOP_ALL
 
     # ------------------------------------------------------------------ #
-    #  Stabilny kolor pluginu — crc32 zamiast hash(), bo PYTHONHASHSEED
-    #  randomizuje hash() między procesami i kolory skakałyby po restarcie.
+    #  Kolor nazwy komendy wg poziomu uprawnień — patrz PERM_COLOR_PALETTE.
     # ------------------------------------------------------------------ #
-    def _plugin_color(self, plugin_name):
-        idx = zlib.crc32(plugin_name.encode("utf-8")) % len(PLUGIN_COLOR_PALETTE)
-        return PLUGIN_COLOR_PALETTE[idx]
+    def _perm_color(self, perm):
+        return PERM_COLOR_PALETTE.get(perm, PERM_COLOR_DEFAULT)
 
     # ------------------------------------------------------------------ #
     #  Odczyt poziomu uprawnień (defensywny — działa też bez redisa).
