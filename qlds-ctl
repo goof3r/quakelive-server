@@ -237,11 +237,20 @@ do_stop(){
 }
 
 do_restart(){
-  local name="$1" pid
+  local name="$1" pid i
   if pid="$(loop_pid "$name")"; then
     # bez flagi stop: pętla sama podniesie serwer (ubicie w czasie pauzy
     # restartowej trafia w 'sleep' pętli i tylko przyspiesza ponowny start)
     pkill -TERM -P "$pid" 2>/dev/null || true
+    for i in $(seq 1 25); do
+      pgrep -P "$pid" >/dev/null 2>&1 || break
+      sleep 0.2
+    done
+    if pgrep -P "$pid" >/dev/null 2>&1; then
+      # silnik zignorował TERM (obserwowane w praktyce na niektorych hostach)
+      warn "$name: serwer nie zszedł po TERM w 5 s — wysyłam KILL."
+      pkill -KILL -P "$pid" 2>/dev/null || true
+    fi
     ok "$name: serwer ubity — pętla nadzorująca podniesie go automatycznie (~3 s)."
   else
     log "$name: nie działa — uruchamiam."

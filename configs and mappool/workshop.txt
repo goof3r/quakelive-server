@@ -2,6 +2,24 @@
 //  workshop.txt — Quake Live dedicated server
 //  Jeden ID per linia. Komentarz obok = tytuł + nazwy map (BSP).
 //  Umieść w: ~/qlds/baseq3/workshop.txt
+//
+//  WAZNE — headless dedykowany serwer NIE POBIERA Workshopu sam:
+//  qlx_workshopReferences (cvar generowany z tej listy) tylko MOWI silnikowi
+//  co powinno byc dostepne — nie sciaga niczego. Bez dzialajacego klienta
+//  Steam silnik loguje przy starcie "Skipping workshop, ISteamUGC is NULL"
+//  i pomija caly Workshop. KAZDE nowe ID trzeba wiec pobrac RECZNIE:
+//
+//    ~/steamcmd/steamcmd.sh +force_install_dir ~/qlds +login anonymous \
+//      +workshop_download_item 282440 <ID> +quit
+//
+//  (uwaga na +force_install_dir — bez niego steamcmd sciaga do domyslnego
+//  ~/Steam/steamapps/..., a nie do ~/qlds/steamapps/..., ktorego uzywa QLDS).
+//  Po pobraniu: qlds-ctl stop <tryb> && qlds-ctl start <tryb> (NIE 'restart'
+//  na starszych qlds-ctl — silnik czasem ignoruje SIGTERM). Zweryfikuj w
+//  konsoli: 'dir maps bsp' powinno pokazac nowa mape. Jesli mimo pobrania
+//  mapa nadal nie wystepuje w 'dir maps bsp' (rzadki przypadek — tak bylo
+//  z 547252823/6plus.pk3 z niejasnego powodu), obejscie: skopiuj .pk3
+//  bezposrednio do ~/qlds/baseq3/ i zrestartuj — stamtad montuje sie zawsze.
 // =============================================================
 
 // --- Oficjalne paczki id Software ---
@@ -11,7 +29,7 @@
 // --- Community maps & packs ---
 623144451  // Maps for crobartie's server (modified) — ts_dm5, ts_dm5tmp
 546664071  // Rustgrad — rustgrad
-547252823  // 6+ (Q3: 6++) — 6++
+547252823  // 6+ (Q3: 6++, plik 6plus.pk3) — 6plus (potwierdzone: maps/6plus.bsp w pk3)
 573808557  // Iron Yard — fr3dm1
 583820600  // Eulogy — jex3dm1
 573807159  // Q-Fraggel Maps — qfraggel1, qfraggel2a, qfraggel3ffa, qfraggel3tdm
