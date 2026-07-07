@@ -6,7 +6,17 @@
 #  WORKSHOP IDs:
 #   - Mapy bazowe QL: bez workshop ID
 #   - Mapy PPak: zawarte w paczkach 539421606 + 539421982 (juz masz)
-#   - Mapy 6+: 638618725, 638531198, 637351306 (juz masz w workshop.txt)
+#   - 6++: workshop 547252823 (patrz workshop.txt) — UWAGA: bsp to "6++",
+#     NIE "6plus" (poprzedni wpis linii ponizej byl bledny — mapa sie
+#     nie ladowala, bo taki plik nie istnieje).
+#   - ironworks/houseofdecay/provinggrounds/leftbehind/namelessplace/overlord:
+#     TODO — realne workshop ID NIEZWERYFIKOWANE. Poprzedni komentarz podawal
+#     638618725/638531198/637351306, ale te ID w workshop.txt naleza do
+#     zupelnie innych map (dadex/dubneoc/ct3dm4) — to byla pomylka. Sprawdz
+#     na dzialajacym serwerze (subskrybowane workshop_content/282440/<id>/
+#     lub `dir maps`), ktore z tych 6 map faktycznie sa zaladowane i pod
+#     jakim ID — dopoki to nie zostanie potwierdzone, te 6 wpisow nizej
+#     MOZE nie dzialac tak samo jak "6plus" nie dzialalo.
 # =============================================================================
 
 # --- MAPY BAZOWE QL (bez workshop ID) ---
@@ -54,11 +64,12 @@ evolution|mg_ft_fullclassic
 gothicrage|mg_ft_fullclassic
 hellsgateredux|mg_ft_fullclassic
 
-# --- MAPY 6+ (duze, teamowe; workshop 638618725, 638531198, 637351306) ---
+# --- MAPY 6+ (duze, teamowe) ---
+# UWAGA: workshop ID dla tych 6 map ponizej NIEZWERYFIKOWANE — patrz TODO w naglowku pliku.
 ironworks|mg_ft_fullclassic
 houseofdecay|mg_ft_fullclassic
 provinggrounds|mg_ft_fullclassic
 leftbehind|mg_ft_fullclassic
 namelessplace|mg_ft_fullclassic
 overlord|mg_ft_fullclassic
-6plus|mg_ft_fullclassic
+6++|mg_ft_fullclassic
