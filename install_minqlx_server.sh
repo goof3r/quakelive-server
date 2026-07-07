@@ -419,7 +419,7 @@ QLX_PLUGINS_LIST="plugin_manager, essentials, motd, permission, ban, silence, cl
 # Lista pluginów dla serwerów trybów (FFA/TDM/FT). Wzięta z dołączonych cfg-ów,
 # ale OCZYSZCZONA: usunięte 'irc' (na życzenie) oraz 'patch' i 'specvote' (bespoke
 # pluginy obcego serwera — nie istnieją w żadnym repo, blokowałyby ładowanie).
-GT_PLUGINS_LIST="plugin_manager, essentials, motd, permission, ban, warmup_weapons, clan, names, silence, log, balance, branding, workshop, weaponspawnfixer, queue, autospec, checkplayers, votestats, ips, aliases, botmanager, onjoin, serverhelp, permoverride"
+GT_PLUGINS_LIST="plugin_manager, essentials, motd, permission, ban, warmup_weapons, maps, clan, names, silence, log, balance, branding, workshop, weaponspawnfixer, queue, autospec, checkplayers, votestats, ips, aliases, botmanager, onjoin, serverhelp, permoverride"
 
 if [ -f "$CFG" ]; then
   warn "server.cfg już istnieje — nie nadpisuję go w całości. Wzór: server.cfg.example."
