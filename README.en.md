@@ -7,23 +7,20 @@ The `install_minqlx_server.sh` script sets up a Quake Live Dedicated Server
 BarelyMiSSeD + tjone270 + several external ones) on a clean Debian/Ubuntu
 (x86_64) system.
 
-**The installer only generates start scripts** (`start.sh`, `start-tdm.sh`,
-`start-ffa.sh`, `start-ft.sh`, `start-<name>.sh`) — **it does NOT create
-systemd services and does NOT wrap the server in a screen session**. You
-start the servers manually:
+You control the servers with the **`qlds-ctl`** tool (installed into
+`~/qlds/`): each instance runs in its own named `screen` session (`qlds-tdm`,
+`qlds-ffa`, ...) with a supervising loop that **relaunches the server after
+every crash**. You alone decide when a server is up or down — `qlds-ctl stop`
+shuts it down **permanently** (it won't come back after a crash or a reboot),
+and after a host reboot only the servers you did NOT stop are started
+automatically (cron `@reboot`). The installer does **not** create systemd
+services for the QL servers.
 
 ```bash
-bash ~/qlds/start-tdm.sh
-bash ~/qlds/start-ffa.sh
-bash ~/qlds/start-ft.sh
-```
-
-If you want the console detached in the background, use `screen` / `tmux` /
-`nohup` yourself:
-
-```bash
-screen -dmS start-tdm bash ~/qlds/start-tdm.sh
-tmux new -d -s start-tdm "bash ~/qlds/start-tdm.sh"
+~/qlds/qlds-ctl start all      # start all enabled servers
+~/qlds/qlds-ctl stop ffa       # shut down permanently
+~/qlds/qlds-ctl status         # what's enabled / what's actually running
+~/qlds/qlds-ctl console tdm    # server console (detach: Ctrl+A, D)
 ```
 
 ## Requirements
@@ -63,6 +60,7 @@ In this mode the installer automatically uses local files from the repo:
 | `minqlx-plugins/*.py` | Copied as the **last step** — overwrites versions from MinoMino/BarelyMiSSeD/tjone270 |
 | `minqlx-plugins/Map_Names/` `extras/` `mbot_maps.json` | Copied together with the plugins |
 | `commands.py` `serverhelp.py` `permoverride.py` | Copied from the directory next to the script instead of pulling from GitHub |
+| `qlds-ctl` | Copied to `$QLDS_DIR/qlds-ctl` — the start/stop/restart/status/console tool |
 
 ## Configuration via environment variables
 
@@ -78,34 +76,60 @@ In this mode the installer automatically uses local files from the repo:
 
 You can find your SteamID64 at <https://steamid.io>.
 
-## Running the gametype servers
+## Controlling the servers — qlds-ctl
 
-The installer creates three start scripts:
+The installer creates the three gametype start scripts plus the
+`~/qlds/qlds-ctl` tool:
 
-| Gametype | UDP port | Start script |
-|---|---|---|
-| TDM | 27960 | `~/qlds/start-tdm.sh` |
-| FFA | 27961 | `~/qlds/start-ffa.sh` |
-| FT  | 27962 | `~/qlds/start-ft.sh`  |
+| Instance | UDP port | Start script | Screen session |
+|---|---|---|---|
+| tdm | 27960 | `~/qlds/start-tdm.sh` | `qlds-tdm` |
+| ffa | 27961 | `~/qlds/start-ffa.sh` | `qlds-ffa` |
+| ft  | 27962 | `~/qlds/start-ft.sh`  | `qlds-ft`  |
+| base | 27960 | `~/qlds/start.sh` | `qlds-base` (**disabled** by default — shares the port with tdm) |
 
 ```bash
-# Run (foreground, in the current terminal session):
-bash ~/qlds/start-tdm.sh
-
-# Detached, inside a screen session (optional):
-screen -dmS start-tdm bash ~/qlds/start-tdm.sh
-screen -r start-tdm            # attach console (detach: Ctrl+A, D)
-screen -ls                     # list active sessions
-
-# Detached, inside a tmux session (optional):
-tmux new -d -s start-tdm "bash ~/qlds/start-tdm.sh"
-tmux attach -t start-tdm       # attach console (detach: Ctrl+B, D)
-
-# Stop: switch to the session and type in the minqlx console  quit
+~/qlds/qlds-ctl start tdm      # start a server (clears the stop flag)
+~/qlds/qlds-ctl start all      # start all ENABLED servers (skips stopped ones)
+~/qlds/qlds-ctl stop ffa       # shut down PERMANENTLY — won't return after a crash or reboot
+~/qlds/qlds-ctl restart ft     # quick restart (enabled/disabled flag untouched)
+~/qlds/qlds-ctl status         # table: what's enabled / what's actually running
+~/qlds/qlds-ctl console tdm    # interactive minqlx console (detach: Ctrl+A, D)
 ```
 
-**After a reboot** — servers do **not** start automatically. Start them
-manually (or add your own `@reboot` entry in `crontab -e` if you want).
+How it works:
+
+- Each server runs in a named `screen` session (`screen -ls` shows them too)
+  with a **supervising loop** that relaunches it after **every** process exit —
+  a crash, `quit` typed in the console, etc. Restarts are 3 s apart; if the
+  server dies right after startup 5 times in a row, the delay grows to 60 s.
+- The **only** way to shut a server down for good is `qlds-ctl stop` — it
+  creates the `~/qlds/state/<name>.stopped` flag and kills the process. The
+  server stays down until you run `qlds-ctl start`.
+- **After a host reboot** the `@reboot` crontab entry (added by the installer)
+  runs `qlds-ctl boot`: only instances without the `.stopped` flag come up —
+  each in its own screen session, no action needed from you.
+- Loop events (starts, crashes, restarts) go to `~/qlds/state/<name>.log`
+  and to the session console (scrollback in `qlds-ctl console`).
+
+## Migrating an older install (servers "come back on their own")
+
+Hosts set up with an earlier version of the installer have systemd services
+`qlserver.service` / `qlserver-tdm/ffa/ft/...` with `Restart=on-failure` —
+they are what resurrects the servers after you stop them manually. **Just
+re-run the installer** — it detects, stops and removes them (then run
+`qlds-ctl start all`). Manually:
+
+```bash
+sudo systemctl disable --now 'qlserver*.service'
+sudo rm -f /etc/systemd/system/qlserver*.service
+sudo systemctl daemon-reload
+screen -ls   # also kill any old manually started start-* sessions
+```
+
+Note: the `restartserver.py` plugin (not in the default plugin list; it issues
+`quit` and requires an external supervisor) now works as intended under
+qlds-ctl — the loop relaunches the server after its scheduled `quit`.
 
 ## Gametype definitions (gametypes-factories)
 
@@ -135,10 +159,12 @@ The file is installed to `$QLDS_DIR/baseq3/scripts/gametypes.factories`.
 ```
 
 Creates `baseq3/<name>.cfg`, `start-<name>.sh` and the `instances/<name>/`
-directory. Start the server manually:
+directory. The new instance is immediately visible to `qlds-ctl` (discovered
+by the start-script name):
 
 ```bash
-bash ~/qlds/start-duel.sh
+~/qlds/qlds-ctl start duel
+~/qlds/qlds-ctl status
 ```
 
 Open the UDP port (and TCP `port+1000` for rcon) in your firewall.
@@ -146,7 +172,7 @@ Open the UDP port (and TCP `port+1000` for rcon) in your firewall.
 ## What the script installs
 
 1. apt: python3-dev, redis-server, build-essential, lib32gcc, screen
-   (package available for optional use), ...
+   (used by qlds-ctl), ...
 2. SteamCMD + QLDS (app 349090, login anonymous)
 3. Compiling minqlx from source (MinoMino/minqlx)
 4. Plugins (in order — the last one wins):
@@ -161,7 +187,10 @@ Open the UDP port (and TCP `port+1000` for rcon) in your firewall.
 7. Gametype configs from `configs and mappool/` (ffa/tdm/ft.cfg + mappools)
 8. `gametypes.factories` (10 gametype definitions)
 9. Start scripts `start-tdm.sh` / `start-ffa.sh` / `start-ft.sh`
-10. `add_server.sh` for future instances
+10. **`qlds-ctl`** + the `state/` directory (the `base` instance disabled by
+    default) + an `@reboot` crontab entry (auto-start of enabled servers);
+    also removes legacy `qlserver*.service` units from older installer versions
+11. `add_server.sh` for future instances
 
 ## Updating
 

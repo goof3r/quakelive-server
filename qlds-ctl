@@ -1,0 +1,318 @@
+#!/usr/bin/env bash
+# qlds-ctl — sterowanie serwerami Quake Live (minqlx): start / stop / restart /
+# status / console.
+#
+# Każda instancja działa w nazwanej sesji screen (qlds-<nazwa>), w której pętla
+# nadzorująca (_supervise) podnosi serwer po KAŻDYM zakończeniu procesu (crash,
+# quit w konsoli itd.). Jedyna droga trwałego wyłączenia to 'qlds-ctl stop':
+# ustawia flagę state/<nazwa>.stopped i ubija proces — serwer nie wstanie ani po
+# padzie, ani po reboocie, dopóki nie zrobisz 'qlds-ctl start'.
+#
+# Autostart po reboocie: wpis '@reboot ... qlds-ctl boot' w crontabie (dodawany
+# przez instalator) uruchamia wszystkie WŁĄCZONE instancje (bez flagi .stopped).
+#
+# Instancje wykrywane są automatycznie: start-<nazwa>.sh w katalogu serwera
+# (+ instancja 'base' dla generycznego start.sh). Serwery dodane przez
+# add_server.sh działają od razu, bez żadnej konfiguracji.
+set -euo pipefail
+
+# Katalog serwera: domyślnie katalog, w którym leży ten skrypt (instalator
+# kopiuje qlds-ctl do $QLDS_DIR). Override przez env ułatwia testy.
+QLDS_DIR="${QLDS_DIR:-$(cd "$(dirname "$(readlink -f "$0")")" && pwd)}"
+[ -f "$QLDS_DIR/run_server_x64_minqlx.sh" ] \
+  || { echo "[X] $QLDS_DIR nie wygląda na katalog serwera QL (brak run_server_x64_minqlx.sh)." >&2; exit 1; }
+STATE="$QLDS_DIR/state"
+mkdir -p "$STATE"
+# cron ma ubogi PATH — awaryjnie bierzemy screen z pełnej ścieżki
+SCREEN_BIN="$(command -v screen || echo /usr/bin/screen)"
+
+c_ok="\033[1;32m"; c_warn="\033[1;33m"; c_err="\033[1;31m"; c_i="\033[1;36m"; c_e="\033[0m"
+log(){ echo -e "${c_i}[*]${c_e} $*"; }; ok(){ echo -e "${c_ok}[OK]${c_e} $*"; }
+warn(){ echo -e "${c_warn}[!]${c_e} $*"; }; die(){ echo -e "${c_err}[X]${c_e} $*" >&2; exit 1; }
+
+usage(){
+  cat <<USAGE
+qlds-ctl — sterowanie serwerami Quake Live (screen + auto-restart po padzie)
+
+Użycie:
+  qlds-ctl start   <nazwa>|all   włącz serwer (kasuje flagę stop);
+                                 'all' uruchamia tylko WŁĄCZONE — zatrzymane
+                                 ręcznie pomija (włącz je jawnie: start <nazwa>)
+  qlds-ctl stop    <nazwa>|all   wyłącz TRWALE: serwer nie wstanie po padzie
+                                 ani po reboocie, dopóki nie zrobisz 'start'
+  qlds-ctl restart <nazwa>|all   szybki restart bez zmiany flagi
+                                 ('all' restartuje tylko działające)
+  qlds-ctl status                tabela: co włączone / co faktycznie działa
+  qlds-ctl console <nazwa>       konsola serwera (odłączenie: Ctrl+A, potem D)
+
+Instancje (wykryte): $(discover | tr '\n' ' ')
+Stan i logi: $STATE/  (<nazwa>.stopped = wyłączony; <nazwa>.log = zdarzenia pętli)
+
+Uwaga: zakończenie serwera KAŻDĄ drogą inną niż 'qlds-ctl stop' (crash, komenda
+quit w konsoli) skutkuje automatycznym podniesieniem go przez pętlę nadzorującą.
+USAGE
+}
+
+# ── Instancje ────────────────────────────────────────────────────────────────
+discover(){
+  # 'base' = generyczny start.sh; pozostałe: start-<nazwa>.sh
+  if [ -f "$QLDS_DIR/start.sh" ]; then echo "base"; fi
+  local f n
+  for f in "$QLDS_DIR"/start-*.sh; do
+    [ -f "$f" ] || continue
+    n="$(basename "$f")"; n="${n#start-}"; n="${n%.sh}"
+    if [ "$n" = "base" ]; then
+      warn "plik start-base.sh koliduje z instancją 'base' (start.sh) — pomijam go" >&2
+      continue
+    fi
+    echo "$n"
+  done
+}
+
+script_for(){
+  if [ "$1" = "base" ]; then echo "$QLDS_DIR/start.sh"; else echo "$QLDS_DIR/start-$1.sh"; fi
+}
+
+port_of(){
+  grep -oE 'net_port "[0-9]+"' "$(script_for "$1")" 2>/dev/null | head -1 | tr -cd '0-9' || true
+}
+
+ensure_instance(){
+  local n
+  for n in $(discover); do
+    if [ "$n" = "$1" ]; then return 0; fi
+  done
+  die "Nieznana instancja '$1'. Dostępne: $(discover | tr '\n' ' ')"
+}
+
+# PID pętli nadzorującej — tylko jeśli proces żyje i to NA PEWNO nasza pętla
+# tej instancji (weryfikacja cmdline chroni przed reużytym PID-em).
+loop_pid(){
+  local pf="$STATE/$1.loop.pid" pid
+  [ -f "$pf" ] || return 1
+  pid="$(cat "$pf" 2>/dev/null || true)"
+  [ -n "$pid" ] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -qF -- "_supervise $1 " || return 1
+  echo "$pid"
+}
+
+# PID-y procesu serwera danej instancji — po unikalnym porcie w argumentach
+# (cudzysłowy ze skryptu startowego nie trafiają do cmdline; spacja na końcu
+# odcina dłuższe porty, '+' eskejpowany dla ERE).
+server_pids(){
+  local port; port="$(port_of "$1")"
+  [ -n "$port" ] || return 0
+  pgrep -f -- "\+set net_port ${port} " 2>/dev/null || true
+}
+
+# Zdarzenie pętli: na konsolę (scrollback screena) i do state/<nazwa>.log
+evt(){
+  local name="$1"; shift
+  local line; line="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+  echo "$line"
+  echo "$line" >>"$STATE/$name.log"
+}
+
+# ── Pętla nadzorująca (działa wewnątrz sesji screen) ─────────────────────────
+cmd_supervise(){
+  local name="$1" script flag pf pid rc t0 uptime fails=0 delay
+  script="$(script_for "$name")"
+  [ -f "$script" ] || die "Brak skryptu startowego: $script"
+  flag="$STATE/$name.stopped"; pf="$STATE/$name.loop.pid"
+  if pid="$(loop_pid "$name")"; then
+    die "Pętla nadzorująca '$name' już działa (PID $pid)."
+  fi
+  echo $$ >"$pf"
+  # shellcheck disable=SC2064  # celowo rozwijamy $pf teraz (local zniknie przed EXIT)
+  trap "rm -f '$pf'" EXIT
+  # Ctrl+C w konsoli ma ubić serwer, nie pętlę (pętla go zaraz podniesie)
+  trap '' INT
+  while true; do
+    if [ -e "$flag" ]; then
+      evt "$name" "zatrzymany przez 'qlds-ctl stop' — kończę pętlę nadzorującą"
+      break
+    fi
+    evt "$name" "uruchamiam serwer ($(basename "$script"))"
+    t0="$(date +%s)"; rc=0
+    bash "$script" || rc=$?
+    uptime=$(( $(date +%s) - t0 ))
+    if [ -e "$flag" ]; then
+      evt "$name" "zatrzymany przez 'qlds-ctl stop' (rc=$rc) — kończę pętlę nadzorującą"
+      break
+    fi
+    if [ "$uptime" -lt 30 ]; then fails=$((fails+1)); else fails=0; fi
+    delay=3
+    if [ "$fails" -ge 5 ]; then
+      delay=60
+      evt "$name" "serwer pada tuż po starcie ($fails razy z rzędu) — zwalniam restarty do co ${delay}s"
+    fi
+    evt "$name" "serwer zakończył się (rc=$rc, czas działania ${uptime}s) — restart za ${delay}s"
+    sleep "$delay" || true
+  done
+}
+
+# ── Akcje ────────────────────────────────────────────────────────────────────
+do_start(){
+  local name="$1" skip_disabled="${2:-0}" flag pid port n opids i
+  flag="$STATE/$name.stopped"
+  if [ "$skip_disabled" = "1" ] && [ -e "$flag" ]; then
+    warn "$name: wyłączony ('qlds-ctl stop') — pomijam. Włącz jawnie: qlds-ctl start $name"
+    return 0
+  fi
+  if pid="$(loop_pid "$name")"; then
+    ok "$name: już działa (pętla PID $pid)."
+    return 0
+  fi
+  # kolizja portu z inną DZIAŁAJĄCĄ instancją (np. base i tdm — obie 27960)
+  port="$(port_of "$name")"
+  if [ -n "$port" ]; then
+    for n in $(discover); do
+      if [ "$n" != "$name" ] && [ "$(port_of "$n")" = "$port" ]; then
+        opids="$(server_pids "$n")"
+        if [ -n "$opids" ]; then
+          warn "$name: port UDP $port zajęty przez działającą instancję '$n' — najpierw: qlds-ctl stop $n"
+          return 1
+        fi
+      fi
+    done
+  fi
+  rm -f "$flag"
+  # sprzątnij ewentualną martwą sesję screen o tej nazwie
+  "$SCREEN_BIN" -S "qlds-$name" -X quit >/dev/null 2>&1 || true
+  if ! "$SCREEN_BIN" -dmS "qlds-$name" "$QLDS_DIR/qlds-ctl" _supervise "$name"; then
+    warn "$name: nie udało się uruchomić sesji screen ($SCREEN_BIN) — czy screen jest zainstalowany?"
+    return 1
+  fi
+  for i in $(seq 1 15); do
+    if pid="$(loop_pid "$name")"; then
+      ok "$name: uruchomiony w sesji screen 'qlds-$name' (pętla PID $pid). Konsola: qlds-ctl console $name"
+      return 0
+    fi
+    sleep 0.2
+  done
+  warn "$name: sesja screen wystartowała, ale pętla nie zgłosiła się w 3 s — sprawdź: qlds-ctl status oraz screen -ls"
+  return 1
+}
+
+do_stop(){
+  local name="$1" flag pid pids p i
+  flag="$STATE/$name.stopped"
+  touch "$flag"
+  if pid="$(loop_pid "$name")"; then
+    # flaga już ustawiona -> po ubiciu serwera pętla zakończy się sama
+    pkill -TERM -P "$pid" 2>/dev/null || true
+    for i in $(seq 1 25); do
+      pgrep -P "$pid" >/dev/null 2>&1 || break
+      sleep 0.2
+    done
+    if pgrep -P "$pid" >/dev/null 2>&1; then
+      warn "$name: serwer nie zszedł po TERM w 5 s — wysyłam KILL."
+      pkill -KILL -P "$pid" 2>/dev/null || true
+    fi
+    for i in $(seq 1 15); do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 0.2
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+      warn "$name: pętla nadzorująca (PID $pid) wciąż działa — sprawdź: screen -ls oraz qlds-ctl status"
+      return 1
+    fi
+    ok "$name: zatrzymany i wyłączony — nie wstanie po padzie ani po reboocie (włącz: qlds-ctl start $name)."
+  else
+    pids="$(server_pids "$name")"
+    if [ -n "$pids" ]; then
+      # np. po 'kill -9' pętli: serwer osierocony, bez nadzoru
+      warn "$name: brak pętli nadzorującej, ale działa osierocony proces serwera (PID: $(echo $pids | tr ' ' ',')) — ubijam."
+      kill -TERM $pids 2>/dev/null || true
+      sleep 1
+      for p in $pids; do
+        if kill -0 "$p" 2>/dev/null; then kill -KILL "$p" 2>/dev/null || true; fi
+      done
+      ok "$name: osierocony proces ubity; instancja wyłączona."
+    else
+      ok "$name: nie działał — oznaczony jako wyłączony (nie wstanie po reboocie)."
+    fi
+  fi
+}
+
+do_restart(){
+  local name="$1" pid
+  if pid="$(loop_pid "$name")"; then
+    # bez flagi stop: pętla sama podniesie serwer (ubicie w czasie pauzy
+    # restartowej trafia w 'sleep' pętli i tylko przyspiesza ponowny start)
+    pkill -TERM -P "$pid" 2>/dev/null || true
+    ok "$name: serwer ubity — pętla nadzorująca podniesie go automatycznie (~3 s)."
+  else
+    log "$name: nie działa — uruchamiam."
+    do_start "$name"
+  fi
+}
+
+cmd_status(){
+  local name port flag_s screen_s pids srv
+  printf '%-14s %-7s %-9s %-7s %s\n' 'NAZWA' 'PORT' 'WLACZONY' 'SCREEN' 'SERWER'
+  for name in $(discover); do
+    port="$(port_of "$name")"
+    if [ -e "$STATE/$name.stopped" ]; then flag_s="nie"; else flag_s="tak"; fi
+    if "$SCREEN_BIN" -ls 2>/dev/null | grep -q "\.qlds-${name}[[:space:]]"; then screen_s="tak"; else screen_s="-"; fi
+    pids="$(server_pids "$name")"
+    if [ -n "$pids" ]; then srv="dziala (PID $(echo $pids | tr ' ' ','))"; else srv="-"; fi
+    printf '%-14s %-7s %-9s %-7s %s\n' "$name" "${port:--}" "$flag_s" "$screen_s" "$srv"
+  done
+}
+
+cmd_console(){
+  local name="$1"
+  if ! "$SCREEN_BIN" -ls 2>/dev/null | grep -q "\.qlds-${name}[[:space:]]"; then
+    die "Brak sesji screen 'qlds-$name' — serwer wyłączony? Sprawdź: qlds-ctl status; włącz: qlds-ctl start $name"
+  fi
+  exec "$SCREEN_BIN" -rd "qlds-$name"
+}
+
+# Autostart po reboocie (wołane z crontaba przez @reboot)
+cmd_boot(){
+  exec >>"$STATE/boot.log" 2>&1
+  echo "=== [$(date '+%Y-%m-%d %H:%M:%S')] qlds-ctl boot (autostart po reboocie) ==="
+  # redis (wymagany przez minqlx) może jeszcze wstawać równolegle z nami
+  if command -v redis-cli >/dev/null 2>&1; then
+    local i
+    for i in $(seq 1 30); do
+      if redis-cli ping >/dev/null 2>&1; then break; fi
+      sleep 1
+    done
+  fi
+  local name
+  for name in $(discover); do
+    do_start "$name" 1 || true
+  done
+  echo "=== [$(date '+%Y-%m-%d %H:%M:%S')] boot zakończony ==="
+}
+
+# ── Dispatcher ───────────────────────────────────────────────────────────────
+cmd="${1:-}"; arg="${2:-}"
+case "$cmd" in
+  start|stop|restart)
+    [ -n "$arg" ] || { usage; exit 1; }
+    if [ "$arg" = "all" ]; then
+      names="$(discover)"
+      [ -n "$names" ] || die "Brak instancji (nie znaleziono start*.sh w $QLDS_DIR)."
+      for n in $names; do
+        case "$cmd" in
+          start)   do_start "$n" 1 || true ;;
+          stop)    do_stop "$n" || true ;;
+          restart) if loop_pid "$n" >/dev/null; then do_restart "$n" || true; fi ;;
+        esac
+      done
+    else
+      ensure_instance "$arg"
+      "do_$cmd" "$arg"
+    fi
+    ;;
+  status)     cmd_status ;;
+  console)    [ -n "$arg" ] || { usage; exit 1; }; ensure_instance "$arg"; cmd_console "$arg" ;;
+  boot)       cmd_boot ;;
+  _supervise) [ -n "$arg" ] || die "Użycie wewnętrzne: qlds-ctl _supervise <nazwa>"; cmd_supervise "$arg" ;;
+  ''|-h|--help|help) usage ;;
+  *) usage; exit 1 ;;
+esac

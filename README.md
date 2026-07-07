@@ -6,21 +6,20 @@ Skrypt `install_minqlx_server.sh` stawia od zera serwer Quake Live (QLDS) z
 minqlx i kompletem pluginów (MinoMino + BarelyMiSSeD + tjone270 + kilka
 zewnętrznych) na czystym Debianie/Ubuntu (x86_64).
 
-**Instalator generuje tylko skrypty startowe** (`start.sh`, `start-tdm.sh`,
-`start-ffa.sh`, `start-ft.sh`, `start-<nazwa>.sh`) — **nie tworzy usług
-systemd i nie wrapuje serwera w screen**. Serwery uruchamiasz ręcznie:
+Serwerami sterujesz narzędziem **`qlds-ctl`** (instalowanym do `~/qlds/`):
+każda instancja działa w osobnej, nazwanej sesji `screen` (`qlds-tdm`,
+`qlds-ffa`, ...), w której pętla nadzorująca **podnosi serwer po każdym
+padzie**. O tym, kiedy serwer jest włączony, a kiedy wyłączony, decydujesz
+wyłącznie Ty — `qlds-ctl stop` wyłącza **trwale** (serwer nie wstanie ani po
+crashu, ani po reboocie), a po restarcie hosta automatycznie (cron `@reboot`)
+wstają tylko te serwery, których nie zatrzymałeś. Instalator **nie tworzy
+usług systemd** dla serwerów QL.
 
 ```bash
-bash ~/qlds/start-tdm.sh
-bash ~/qlds/start-ffa.sh
-bash ~/qlds/start-ft.sh
-```
-
-Jeśli chcesz mieć konsolę w tle, sam użyj np. `screen` / `tmux` / `nohup`:
-
-```bash
-screen -dmS start-tdm bash ~/qlds/start-tdm.sh
-tmux new -d -s start-tdm "bash ~/qlds/start-tdm.sh"
+~/qlds/qlds-ctl start all      # włącz wszystkie włączone serwery
+~/qlds/qlds-ctl stop ffa       # wyłącz trwale
+~/qlds/qlds-ctl status         # co włączone / co faktycznie działa
+~/qlds/qlds-ctl console tdm    # konsola serwera (odłącz: Ctrl+A, D)
 ```
 
 ## Wymagania
@@ -60,6 +59,7 @@ W tym wariancie instalator automatycznie użyje lokalnych plików z repo:
 | `minqlx-plugins/*.py` | Kopiowane jako **ostatni krok** — nadpisują wersje z repo MinoMino/BarelyMiSSeD/tjone270 |
 | `minqlx-plugins/Map_Names/` `extras/` `mbot_maps.json` | Kopiowane razem z pluginami |
 | `commands.py` `serverhelp.py` `permoverride.py` | Kopiowane z katalogu obok skryptu zamiast pobierania z GitHuba |
+| `qlds-ctl` | Kopiowany do `$QLDS_DIR/qlds-ctl` — narzędzie start/stop/restart/status/console |
 
 ## Konfiguracja przez zmienne środowiskowe
 
@@ -75,34 +75,59 @@ W tym wariancie instalator automatycznie użyje lokalnych plików z repo:
 
 SteamID64 znajdziesz na <https://steamid.io>.
 
-## Uruchamianie serwerów trybów
+## Sterowanie serwerami — qlds-ctl
 
-Instalator tworzy trzy skrypty startowe:
+Instalator tworzy skrypty startowe trzech trybów oraz narzędzie `~/qlds/qlds-ctl`:
 
-| Tryb | Port UDP | Skrypt startowy |
-|---|---|---|
-| TDM | 27960 | `~/qlds/start-tdm.sh` |
-| FFA | 27961 | `~/qlds/start-ffa.sh` |
-| FT  | 27962 | `~/qlds/start-ft.sh`  |
+| Instancja | Port UDP | Skrypt startowy | Sesja screen |
+|---|---|---|---|
+| tdm | 27960 | `~/qlds/start-tdm.sh` | `qlds-tdm` |
+| ffa | 27961 | `~/qlds/start-ffa.sh` | `qlds-ffa` |
+| ft  | 27962 | `~/qlds/start-ft.sh`  | `qlds-ft`  |
+| base | 27960 | `~/qlds/start.sh` | `qlds-base` (domyślnie **wyłączona** — dzieli port z tdm) |
 
 ```bash
-# Uruchom (foreground, w bieżącej sesji terminala):
-bash ~/qlds/start-tdm.sh
-
-# W tle w sesji screen (opcjonalnie):
-screen -dmS start-tdm bash ~/qlds/start-tdm.sh
-screen -r start-tdm            # podłącz konsolę (odłącz: Ctrl+A, D)
-screen -ls                     # lista aktywnych sesji
-
-# W tle w sesji tmux (opcjonalnie):
-tmux new -d -s start-tdm "bash ~/qlds/start-tdm.sh"
-tmux attach -t start-tdm       # podłącz konsolę (odłącz: Ctrl+B, D)
-
-# Zatrzymaj: przełącz się do sesji i wpisz w konsoli minqlx  quit
+~/qlds/qlds-ctl start tdm      # włącz serwer (kasuje flagę stop)
+~/qlds/qlds-ctl start all      # włącz wszystkie WŁĄCZONE (zatrzymane pomija)
+~/qlds/qlds-ctl stop ffa       # wyłącz TRWALE — nie wstanie po padzie ani po reboocie
+~/qlds/qlds-ctl restart ft     # szybki restart (bez zmiany flagi włącz/wyłącz)
+~/qlds/qlds-ctl status         # tabela: co włączone / co faktycznie działa
+~/qlds/qlds-ctl console tdm    # interaktywna konsola minqlx (odłącz: Ctrl+A, D)
 ```
 
-**Po reboot** — serwery **nie** startują automatycznie. Uruchom je ręcznie
-(lub dodaj sobie własny wpis w `crontab -e` z `@reboot`, jeśli chcesz).
+Jak to działa:
+
+- Każdy serwer działa w nazwanej sesji `screen` (`screen -ls` też je pokazuje),
+  w której **pętla nadzorująca** uruchamia go ponownie po **każdym** zakończeniu
+  procesu — crash, `quit` wpisany w konsoli itd. Restarty mają 3 s odstępu;
+  jeśli serwer pada tuż po starcie 5 razy z rzędu, odstęp rośnie do 60 s.
+- **Jedyną** drogą trwałego wyłączenia jest `qlds-ctl stop` — tworzy flagę
+  `~/qlds/state/<nazwa>.stopped` i ubija proces. Serwer zostaje wyłączony,
+  dopóki nie zrobisz `qlds-ctl start`.
+- **Po reboocie** hosta wpis `@reboot` w crontabie (dodany przez instalator)
+  uruchamia `qlds-ctl boot`: wstają **tylko** instancje bez flagi `.stopped` —
+  każda w swoim screenie, bez Twojego udziału.
+- Zdarzenia pętli (starty, pady, restarty) trafiają do `~/qlds/state/<nazwa>.log`
+  oraz na konsolę sesji (scrollback w `qlds-ctl console`).
+
+## Migracja ze starszej instalacji (serwery „wstają same")
+
+Hosty stawiane wcześniejszą wersją instalatora mają usługi systemd
+`qlserver.service` / `qlserver-tdm/ffa/ft/...` z `Restart=on-failure` — to one
+wskrzeszają serwery mimo ręcznego zatrzymania. **Wystarczy ponownie uruchomić
+instalator** — wykryje je, zatrzyma i usunie (potem `qlds-ctl start all`).
+Ręcznie to samo:
+
+```bash
+sudo systemctl disable --now 'qlserver*.service'
+sudo rm -f /etc/systemd/system/qlserver*.service
+sudo systemctl daemon-reload
+screen -ls   # ubij też ewentualne stare, ręcznie odpalone sesje start-*
+```
+
+Uwaga: plugin `restartserver.py` (spoza domyślnej listy; wysyła `quit` i wymaga
+zewnętrznego nadzorcy) pod qlds-ctl działa zgodnie z przeznaczeniem — pętla
+podniesie serwer po jego zaplanowanym `quit`.
 
 ## Definicje trybów gry (gametypes-factories)
 
@@ -131,18 +156,20 @@ Plik trafia do `$QLDS_DIR/baseq3/scripts/gametypes.factories` podczas instalacji
 ```
 
 Tworzy `baseq3/<nazwa>.cfg`, `start-<nazwa>.sh` oraz katalog
-`instances/<nazwa>/`. Uruchamiasz serwer ręcznie:
+`instances/<nazwa>/`. Nowa instancja jest od razu widoczna w `qlds-ctl`
+(wykrywanie po nazwie skryptu startowego):
 
 ```bash
-bash ~/qlds/start-duel.sh
+~/qlds/qlds-ctl start duel
+~/qlds/qlds-ctl status
 ```
 
 Otwórz w firewallu port UDP (oraz `port+1000` TCP dla rcon).
 
 ## Co instaluje skrypt
 
-1. apt: python3-dev, redis-server, build-essential, lib32gcc, screen (pakiet do
-   opcjonalnego użycia), ...
+1. apt: python3-dev, redis-server, build-essential, lib32gcc, screen (używany
+   przez qlds-ctl), ...
 2. SteamCMD + QLDS (app 349090, login anonymous)
 3. Kompilacja minqlx ze źródeł (MinoMino/minqlx)
 4. Pluginy (w kolejności, ostatni wygrywa):
@@ -157,7 +184,10 @@ Otwórz w firewallu port UDP (oraz `port+1000` TCP dla rcon).
 7. Konfiguracje trybów z `configs and mappool/` (ffa/tdm/ft.cfg + mapoole)
 8. `gametypes.factories` (10 definicji trybów)
 9. Skrypty startowe `start-tdm.sh` / `start-ffa.sh` / `start-ft.sh`
-10. `add_server.sh` do późniejszych instancji
+10. **`qlds-ctl`** + katalog stanu `state/` (instancja `base` domyślnie
+    wyłączona) + wpis `@reboot` w crontabie (autostart włączonych serwerów);
+    usuwa też stare usługi `qlserver*.service` z poprzednich wersji instalatora
+11. `add_server.sh` do późniejszych instancji
 
 ## Aktualizacja
 

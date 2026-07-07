@@ -10,8 +10,9 @@
 #    4. Kopiuje binarki minqlx do katalogu serwera
 #    5. Klonuje pluginy MinoMino (oficjalne) oraz BarelyMiSSeD (dodatkowe)
 #    6. Instaluje zależności pip pluginów
-#    7. Generuje server.cfg oraz skrypty startowe (BEZ systemd, BEZ screen —
-#       serwery uruchamiasz ręcznie: bash start-tdm.sh / start-ffa.sh / start-ft.sh)
+#    7. Generuje server.cfg, skrypty startowe oraz narzędzie qlds-ctl:
+#       każdy serwer w nazwanej sesji screen, auto-restart po padzie,
+#       trwałe wyłączanie (qlds-ctl stop) i autostart po reboocie (cron @reboot)
 #
 #  Wymagania: Debian 10/11/12 lub Ubuntu 20.04/22.04/24.04 (system apt),
 #             architektura x86_64, użytkownik z prawami sudo (NIE root).
@@ -48,8 +49,8 @@ set -euo pipefail
 : "${BUILD_DIR:=$HOME/minqlx-build}" # tu klonujemy i kompilujemy źródła
 
 # Czy zainstalować gotowe serwery trybów FFA/TDM/FT (z dołączonymi factory
-# crobartie). 1 = tak. Generuje skrypty startowe start-<gt>.sh, które
-# uruchamiasz ręcznie (bez systemd, bez screen — serwery sam odpalasz).
+# crobartie). 1 = tak. Generuje skrypty startowe start-<gt>.sh; serwerami
+# sterujesz przez qlds-ctl (start/stop/restart/status/console).
 : "${INSTALL_GAMETYPE_SERVERS:=1}"
 
 # Repozytoria (zwykle nie trzeba zmieniać)
@@ -72,6 +73,8 @@ WEAPONSPAWNFIXER_RAW="https://raw.githubusercontent.com/roasticle/minqlx-plugins
 : "${SERVERHELP_PY_URL:=https://raw.githubusercontent.com/goof3r/quakelive-server/main/serverhelp.py}"
 # Plugin permoverride (własny: cvar qlx_permFor_<komenda> + !permset/!permshow/!permlist/!permreload).
 : "${PERMOVERRIDE_PY_URL:=https://raw.githubusercontent.com/goof3r/quakelive-server/main/permoverride.py}"
+# Narzędzie qlds-ctl (start/stop/restart/status/console serwerów — patrz qlds-ctl w repo).
+: "${QLDS_CTL_URL:=https://raw.githubusercontent.com/goof3r/quakelive-server/main/qlds-ctl}"
 QLDS_APPID="349090"
 STEAMCMD_URL="https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz"
 
@@ -614,17 +617,87 @@ EOF
 chmod +x "$START"
 ok "Skrypt startowy: $START"
 
-# ── 9. Skrypt startowy (bez systemd, bez screen) ─────────────────────────────
-# Instalator NIE tworzy usługi systemd ani nie wrapuje serwera w screen.
-# Serwer uruchamiasz ręcznie:  bash ${QLDS_DIR}/start.sh
-# (jeśli chcesz mieć konsolę w tle — sam użyj np. screen/tmux/nohup).
-ok "Skrypt startowy gotowy: ${QLDS_DIR}/start.sh — uruchom ręcznie: bash start.sh"
+# ── 9. qlds-ctl — zarządzanie serwerami (screen + auto-restart + autostart) ──
+# Każda instancja działa w nazwanej sesji screen (qlds-<nazwa>), w której pętla
+# nadzorująca podnosi serwer po KAŻDYM zakończeniu procesu (crash, quit).
+# TRWAŁE wyłączenie robi tylko 'qlds-ctl stop <nazwa>' (flaga state/<nazwa>.stopped
+# — serwer nie wstanie też po reboocie). Autostart po reboocie: wpis @reboot
+# w crontabie woła 'qlds-ctl boot' (uruchamia wyłącznie WŁĄCZONE instancje).
+
+# 9a. Instalacja qlds-ctl — źródło jak dla commands.py: lokalny plik obok
+# skryptu (klon repo) albo pobranie z GitHub raw (instalacja przez curl | bash).
+SRC_QLDSCTL=""
+[ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/qlds-ctl" ] && SRC_QLDSCTL="$SCRIPT_DIR/qlds-ctl"
+DST_QLDSCTL="$QLDS_DIR/qlds-ctl"
+if [ -n "$SRC_QLDSCTL" ]; then
+  log "Wgrywam narzędzie qlds-ctl z lokalnego $SRC_QLDSCTL..."
+  cp -f "$SRC_QLDSCTL" "$DST_QLDSCTL"
+  ok "qlds-ctl wgrany z $SRC_QLDSCTL."
+else
+  log "Pobieram narzędzie qlds-ctl z $QLDS_CTL_URL..."
+  if curl -fsSL "$QLDS_CTL_URL" -o "$DST_QLDSCTL" && [ -s "$DST_QLDSCTL" ]; then
+    if grep -q '_supervise' "$DST_QLDSCTL"; then
+      ok "qlds-ctl pobrany z GitHub."
+    else
+      warn "Pobrany qlds-ctl wygląda na uszkodzony (brak '_supervise') — usuwam."
+      rm -f "$DST_QLDSCTL"
+    fi
+  else
+    warn "Nie udało się pobrać qlds-ctl z $QLDS_CTL_URL — serwery trzeba będzie uruchamiać ręcznie (bash start-<nazwa>.sh)."
+    rm -f "$DST_QLDSCTL" 2>/dev/null || true
+  fi
+fi
+if [ -f "$DST_QLDSCTL" ]; then chmod +x "$DST_QLDSCTL"; fi
+
+# 9b. Katalog stanu qlds-ctl. Przy PIERWSZEJ instalacji wyłączamy generyczny
+# serwer 'base' (start.sh), jeśli stawiamy serwery trybów — base dzieli port
+# ${NET_PORT} z tdm (odpowiednik dawnej reguły: „qlserver.service zainstalowana,
+# ale NIE włączona"). Ponowne uruchomienia NIE nadpisują decyzji użytkownika.
+if [ ! -d "$QLDS_DIR/state" ]; then
+  mkdir -p "$QLDS_DIR/state"
+  if [ "$INSTALL_GAMETYPE_SERVERS" = "1" ]; then
+    touch "$QLDS_DIR/state/base.stopped"
+    ok "Instancja 'base' (start.sh) domyślnie wyłączona — dzieli port ${NET_PORT} z tdm. Włączysz ją: qlds-ctl start base"
+  fi
+fi
+
+# 9c. Sprzątanie po POPRZEDNIEJ wersji instalatora: usługi systemd
+# qlserver*.service (Restart=on-failure) wskrzeszały serwery po padzie i były
+# przyczyną „serwer wstaje sam, mimo że go wyłączyłem". Idempotentne — na
+# czystym hoście nic nie robi.
+_legacy_removed=0
+for _u in /etc/systemd/system/qlserver.service /etc/systemd/system/qlserver-*.service; do
+  [ -e "$_u" ] || continue
+  warn "Stara usługa systemd z poprzedniej wersji instalatora: $(basename "$_u") — wyłączam i usuwam."
+  sudo systemctl disable --now "$(basename "$_u")" 2>/dev/null || true
+  sudo rm -f "$_u"
+  _legacy_removed=1
+done
+if [ "$_legacy_removed" = "1" ]; then
+  sudo systemctl daemon-reload 2>/dev/null || true
+  sudo systemctl reset-failed 2>/dev/null || true
+  ok "Usunięto stare usługi qlserver*.service — od teraz serwerami steruje wyłącznie qlds-ctl."
+  warn "Stare usługi zostały ZATRZYMANE — po zakończeniu instalacji włącz serwery: ${QLDS_DIR}/qlds-ctl start all"
+fi
+
+# 9d. Autostart po reboocie: @reboot w crontabie użytkownika woła 'qlds-ctl boot',
+# które uruchamia wyłącznie instancje WŁĄCZONE (bez flagi state/<nazwa>.stopped).
+# Idempotentnie — wpis rozpoznawany po markerze '# qlds-ctl-boot'. Uwaga: pod
+# 'set -euo pipefail' grep na pustym crontabie wymaga '|| true'.
+if [ -x "$DST_QLDSCTL" ] && command -v crontab >/dev/null 2>&1; then
+  _cron_line="@reboot ${QLDS_DIR}/qlds-ctl boot >> ${QLDS_DIR}/state/boot.log 2>&1 # qlds-ctl-boot"
+  { crontab -l 2>/dev/null | grep -vF '# qlds-ctl-boot' || true; echo "$_cron_line"; } | crontab -
+  ok "Wpis @reboot w crontabie ($(whoami)): po restarcie hosta wstaną tylko WŁĄCZONE serwery."
+else
+  warn "Pominąłem wpis @reboot (brak qlds-ctl lub crontab) — po reboocie serwery trzeba uruchomić ręcznie."
+fi
 
 # ── 10. Narzędzie do dodawania kolejnych serwerów QL ─────────────────────────
 # Kolejne serwery używają TEJ SAMEJ instalacji QLDS/minqlx, ale mają:
 #   • własny port UDP,
 #   • własny plik konfiguracji baseq3/<nazwa>.cfg (pierwszy ma server.cfg),
-#   • własny skrypt start-<nazwa>.sh (uruchamiany ręcznie — bez systemd/screen).
+#   • własny skrypt start-<nazwa>.sh — qlds-ctl wykrywa go automatycznie,
+#     więc nową instancję od razu obsługuje start/stop/status/console.
 # Owner (qlx_owner) oraz hasła rcon/stats dziedziczone są z pierwszego start.sh.
 ADD_SCRIPT="$QLDS_DIR/add_server.sh"
 log "Tworzę narzędzie dodawania serwerów: $ADD_SCRIPT"
@@ -632,7 +705,7 @@ log "Tworzę narzędzie dodawania serwerów: $ADD_SCRIPT"
   echo '#!/usr/bin/env bash'
   echo '# add_server.sh — dodaje kolejny serwer QL (instancję): tworzy config i skrypt startowy.'
   echo '# Użycie:  ./add_server.sh [nazwa] [port]   (bez argumentów pyta interaktywnie)'
-  echo '# Serwer uruchamiasz ręcznie:  bash start-<nazwa>.sh   (BEZ systemd, BEZ screen).'
+  echo '# Nową instancję uruchamiasz przez:  qlds-ctl start <nazwa>   (wykrywana automatycznie).'
   echo 'set -euo pipefail'
   echo "QLDS_DIR=\"$QLDS_DIR\""
   echo "WHO=\"$(whoami)\""
@@ -649,6 +722,8 @@ if [ -z "$NAME" ]; then read -rp "Nazwa nowego serwera (np. duel, ffa2): " NAME;
 SAFE="$(echo "$NAME" | tr 'A-Z' 'a-z' | tr -cd 'a-z0-9_-')"
 [ -n "$SAFE" ] || die "Nieprawidłowa nazwa (dozwolone: a-z 0-9 _ -)."
 [ "$SAFE" != "server" ] || die "Nazwa 'server' jest zarezerwowana dla pierwszego serwera."
+[ "$SAFE" != "base" ] || die "Nazwa 'base' jest zarezerwowana w qlds-ctl dla generycznego start.sh."
+[ "$SAFE" != "all" ] || die "Nazwa 'all' jest zarezerwowana w qlds-ctl (operacje na wszystkich instancjach)."
 
 CFG="$QLDS_DIR/baseq3/${SAFE}.cfg"
 START="$QLDS_DIR/start-${SAFE}.sh"
@@ -702,12 +777,14 @@ exec ./run_server_x64_minqlx.sh \\
 START_EOF
 chmod +x "$START"
 
-# 6) Bez systemd, bez screen — serwer uruchamiasz ręcznie skryptem startowym.
+# 6) Nowa instancja jest automatycznie widoczna w qlds-ctl (po nazwie skryptu).
 ok "Dodano serwer '${SAFE}' (skrypt startowy: ${START})."
 echo "  config:    $CFG"
 echo "  start:     $START"
 echo "  port:      UDP $PORT (rcon TCP $((PORT+1000)))"
-echo "  uruchom:   bash ${START}"
+echo "  uruchom:   $QLDS_DIR/qlds-ctl start ${SAFE}"
+echo "  konsola:   $QLDS_DIR/qlds-ctl console ${SAFE}   (odlacz: Ctrl+A, D)"
+echo "  wylacz:    $QLDS_DIR/qlds-ctl stop ${SAFE}   (trwale — nie wstanie po reboocie)"
 echo "  firewall:  otworz port UDP $PORT"
 echo "  panel:     aby zarzadzac nim w panelu, dodaj wpis do qlpanel/servers.json"
 ADDBODY
@@ -729,7 +806,7 @@ fi
 # ── 11. Serwery trybów FFA / TDM / FT (+ dołączone factory) ──────────────────
 # Wgrywa plik z własnymi factory (gametypes.factories) oraz trzy gotowe,
 # OCZYSZCZONE konfiguracje trybów i skrypty startowe start-<gt>.sh dla każdej
-# z nich (serwery uruchamiasz ręcznie — bez systemd, bez screen).
+# z nich (instancjami steruje qlds-ctl: start/stop/restart/status/console).
 # Porty: tdm=27960, ffa=27961, ft=27962.
 if [ "$INSTALL_GAMETYPE_SERVERS" = "1" ]; then
   log "Instaluję serwery trybów FFA/TDM/FT + factory..."
@@ -1361,8 +1438,8 @@ GTCFG
     ok "  konfiguracja: baseq3/${gt}.cfg  (startup: ${startup})"
   }
 
-  # 11c. Generator skryptu startowego dla instancji trybu (BEZ systemd/screen).
-  #   Serwer uruchamiasz ręcznie:  bash ${QLDS_DIR}/start-<gt>.sh
+  # 11c. Generator skryptu startowego dla instancji trybu.
+  #   Instancją sterujesz przez qlds-ctl:  qlds-ctl start <gt> / stop <gt> ...
   #   $1 nazwa(gt)  $2 port_udp
   write_gt_service() {
     local gt="$1" port="$2"
@@ -1385,7 +1462,7 @@ exec ./run_server_x64_minqlx.sh \\
   +exec ${gt}.cfg
 STARTEOF
     chmod +x "$start"
-    ok "  skrypt startowy: start-${gt}.sh  (port UDP ${port}) — uruchom: bash start-${gt}.sh"
+    ok "  skrypt startowy: start-${gt}.sh  (port UDP ${port}) — uruchom: qlds-ctl start ${gt}"
   }
 
   # 11d. Konfiguracje trybów — z lokalnego katalogu configs and mappool/ lub generowane.
@@ -1439,10 +1516,9 @@ STARTEOF
   write_gt_service "ffa" "27961"
   write_gt_service "ft"  "27962"
 
-  ok "Serwery trybów gotowe. Uruchom ręcznie:"
-  ok "  bash ${QLDS_DIR}/start-tdm.sh"
-  ok "  bash ${QLDS_DIR}/start-ffa.sh"
-  ok "  bash ${QLDS_DIR}/start-ft.sh"
+  ok "Serwery trybów gotowe. Uruchom wszystkie włączone jedną komendą:"
+  ok "  ${QLDS_DIR}/qlds-ctl start all"
+  ok "  (generyczny 'base' jest domyślnie wyłączony — dzieli port ${NET_PORT} z tdm)"
   warn "Otwórz w firewallu porty UDP: 27960 (tdm), 27961 (ffa), 27962 (ft)."
 fi
 
@@ -1453,11 +1529,11 @@ echo -e "${c_ok} INSTALACJA ZAKOŃCZONA${c_end}"
 echo -e "${c_ok}=============================================================${c_end}"
 cat <<EOF
 
-Serwer:    ${QLDS_DIR}
-Config:    ${QLDS_DIR}/baseq3/server.cfg
-Start:     ${QLDS_DIR}/start.sh
-Pluginy:   ${QLDS_DIR}/minqlx-plugins
-Workshop:  ${QLDS_DIR}/workshop.txt (${#WORKSHOP_IDS[@]} ID-ków, cvar qlx_workshopReferences w cfgach)
+Serwer:      ${QLDS_DIR}
+Config:      ${QLDS_DIR}/baseq3/server.cfg
+Sterowanie:  ${QLDS_DIR}/qlds-ctl
+Pluginy:     ${QLDS_DIR}/minqlx-plugins
+Workshop:    ${QLDS_DIR}/workshop.txt (${#WORKSHOP_IDS[@]} ID-ków, cvar qlx_workshopReferences w cfgach)
 
 ZANIM WYSTARTUJESZ — sprawdź:
   • qlx_owner (SteamID64) w start.sh        -> obecnie: ${QLX_OWNER}
@@ -1465,26 +1541,29 @@ ZANIM WYSTARTUJESZ — sprawdź:
   • lista pluginów (qlx_plugins) w server.cfg
   • otwórz w firewallu port UDP ${NET_PORT}
 
-URUCHOMIENIE (ręcznie — instalator NIE tworzy usług systemd ani nie wrapuje w screen):
-  Serwery trybów FFA/TDM/FT:
-      bash ${QLDS_DIR}/start-tdm.sh
-      bash ${QLDS_DIR}/start-ffa.sh
-      bash ${QLDS_DIR}/start-ft.sh
+STEROWANIE SERWERAMI (qlds-ctl — każdy serwer w osobnej sesji screen):
+  ${QLDS_DIR}/qlds-ctl start all       # włącz wszystkie WŁĄCZONE serwery
+  ${QLDS_DIR}/qlds-ctl start tdm       # włącz jeden (kasuje flagę stop)
+  ${QLDS_DIR}/qlds-ctl stop ffa        # wyłącz TRWALE (nie wstanie po padzie ani reboocie)
+  ${QLDS_DIR}/qlds-ctl restart ft      # szybki restart (bez zmiany flagi)
+  ${QLDS_DIR}/qlds-ctl status          # co włączone / co faktycznie działa
+  ${QLDS_DIR}/qlds-ctl console tdm     # konsola serwera (odłącz: Ctrl+A, D)
 
-  Generyczny serwer (server.cfg, port ${NET_PORT}):
-      bash ${QLDS_DIR}/start.sh
-
-  Chcesz odpiąć konsolę? Sam użyj np. screen/tmux/nohup:
-      screen -dmS start-tdm bash ${QLDS_DIR}/start-tdm.sh
-      tmux new -d -s start-tdm "bash ${QLDS_DIR}/start-tdm.sh"
+  • Po padzie (crash/quit) serwer wstaje SAM — pętla nadzorująca w screenie.
+  • Po reboocie hosta wstają automatycznie (cron @reboot) tylko serwery,
+    których nie zatrzymałeś — stan „wyłączony" jest trwały (state/<nazwa>.stopped).
+  • Generyczny 'base' (start.sh, port ${NET_PORT}) jest domyślnie wyłączony,
+    bo dzieli port z tdm. Zdarzenia pętli: ${QLDS_DIR}/state/<nazwa>.log
+  • Stare usługi systemd qlserver*.service (auto-wskrzeszanie z poprzedniej
+    wersji instalatora) zostały wyłączone i usunięte, jeśli istniały.
 
 TEST: wejdź na serwer i wpisz na czacie:  !myperm
   -> jeśli pokaże poziom uprawnień > 0, jesteś rozpoznany jako właściciel.
 
 KOLEJNE SERWERY: uruchom  ${QLDS_DIR}/add_server.sh  (lub  add_server.sh <nazwa> <port>).
-  Każdy kolejny serwer ma własny port, własny plik baseq3/<nazwa>.cfg
-  oraz własny skrypt start-<nazwa>.sh — uruchamiasz go ręcznie:
-      bash ${QLDS_DIR}/start-<nazwa>.sh
+  Każdy kolejny serwer ma własny port, własny plik baseq3/<nazwa>.cfg oraz
+  skrypt start-<nazwa>.sh — qlds-ctl wykrywa go automatycznie:
+      ${QLDS_DIR}/qlds-ctl start <nazwa>
   Pamiętaj otworzyć w firewallu port UDP każdego z nich.
 
 AKTUALIZACJA: uruchom ten skrypt ponownie (zaktualizuje QLDS, minqlx i pluginy).

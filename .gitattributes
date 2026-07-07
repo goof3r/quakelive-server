@@ -1,0 +1,4 @@
+# Skrypty shellowe muszą mieć LF — CRLF łamie basha (m.in. \r w shebangu),
+# a qlds-ctl bywa serwowany raw z GitHuba i kopiowany 1:1 na serwer.
+*.sh     text eol=lf
+qlds-ctl text eol=lf
