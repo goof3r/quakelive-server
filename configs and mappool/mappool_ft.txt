@@ -9,15 +9,15 @@
 #   - 6plus: workshop 547252823 (6plus.pk3 -> maps/6plus.bsp, potwierdzone
 #     realna zawartoscia paczki). Mapa czasem "nie dziala" nie przez zla
 #     nazwe, tylko dlatego ze silnik QLDS na headless serwerze NIE potrafi
-#     sam sciagnac Workshopu (ISteamUGC jest NULL bez klienta Steam) —
+#     sam sciagnac Workshopu (ISteamUGC jest NULL bez klienta Steam) ---
 #     paczke trzeba dociagnac recznie: patrz README, sekcja Workshop.
 #   - ironworks/houseofdecay/provinggrounds/leftbehind/namelessplace/overlord:
-#     TODO — realne workshop ID NIEZWERYFIKOWANE. Poprzedni komentarz podawal
+#     TODO --- realne workshop ID NIEZWERYFIKOWANE. Poprzedni komentarz podawal
 #     638618725/638531198/637351306, ale te ID w workshop.txt naleza do
-#     zupelnie innych map (dadex/dubneoc/ct3dm4) — to byla pomylka. Sprawdz
+#     zupelnie innych map (dadex/dubneoc/ct3dm4) --- to byla pomylka. Sprawdz
 #     na dzialajacym serwerze (subskrybowane workshop_content/282440/<id>/
 #     lub `dir maps`), ktore z tych 6 map faktycznie sa zaladowane i pod
-#     jakim ID — dopoki to nie zostanie potwierdzone, te 6 wpisow nizej
+#     jakim ID --- dopoki to nie zostanie potwierdzone, te 6 wpisow nizej
 #     MOZE nie dzialac tak samo jak "6plus" nie dzialalo.
 # =============================================================================
 
@@ -68,7 +68,7 @@ hellsgateredux|mg_ft_fullclassic
 
 # --- MAPY 6+ (duze, teamowe) ---
 # UWAGA: workshop ID dla map ironworks/houseofdecay/provinggrounds/leftbehind/
-# namelessplace/overlord ponizej NIEZWERYFIKOWANE — patrz TODO w naglowku pliku.
+# namelessplace/overlord ponizej NIEZWERYFIKOWANE --- patrz TODO w naglowku pliku.
 ironworks|mg_ft_fullclassic
 houseofdecay|mg_ft_fullclassic
 provinggrounds|mg_ft_fullclassic
