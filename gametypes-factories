@@ -27,9 +27,9 @@
       "g_spawnArmor": "0",
       "g_teamForceBalance": "1",
       "g_timeoutCount": "3",
-      "g_freezeResetHealthOnRound": "1",  // 1 = kazdy (obie druzyny, zamrozony lub nie) zaczyna runde od 100hp
-      "g_freezeResetWeaponsOnRound": "1",
-      "g_freezeResetArmorOnRound": "1",
+      "g_freezeResetHealthOnRound": "0",  // 0 = przezywajacy zachowuja hp/bron; tylko zamrozeni na koniec rundy dostaja 100hp + bron startowa
+      "g_freezeResetWeaponsOnRound": "0",
+      "g_freezeResetArmorOnRound": "0",
       "g_startingweapons": "135",
       "g_loadout": "0",
       "g_ammoPack": "0",
