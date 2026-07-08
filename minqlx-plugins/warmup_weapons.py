@@ -100,7 +100,9 @@ class warmup_weapons(minqlx.Plugin):
             self.logger.error(f"warmup_weapons: błąd: {e}")
 
     def on_player_spawn(self, player):
-        if self.game.state != "warmup":
+        # self.game bywa None w trakcie zmiany mapy / zanim gra się zainicjuje —
+        # bez tej ochrony leciał AttributeError na KAŻDY spawn i zaśmiecał log.
+        if self.game is None or self.game.state != "warmup":
             return
         if not self._map_weapons:
             return
