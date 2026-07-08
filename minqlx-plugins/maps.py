@@ -23,7 +23,10 @@ LINE_DELAY = 0.20        # odstep miedzy liniami (s) — chroni przed overflow
 
 class maps(minqlx.Plugin):
     def __init__(self):
-        self.add_command("maps", self.cmd_maps, priority=minqlx.PRI_LOW)
+        # PRI_HIGH + RET_STOP_ALL, aby PRZEJĄĆ !maps od essentials (który rejestruje
+        # 'maps' jako alias !mappool i przy qlx_enforceMappool=0 zwraca tylko
+        # "No map pool is being enforced" zamiast wypisać listę map).
+        self.add_command("maps", self.cmd_maps, priority=minqlx.PRI_HIGH)
 
     def _find_mappool_path(self):
         """Znajdz fizyczna sciezke do pliku z cvara sv_mapPoolFile."""
