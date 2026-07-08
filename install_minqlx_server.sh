@@ -598,6 +598,30 @@ else
 fi
 ok "Lista workshop: $WORKSHOP_FILE (${#WORKSHOP_IDS[@]} ID-ków)"
 
+# ── 7b. Pobranie map z Warsztatu Steam przez SteamCMD ────────────────────────
+# WAŻNE: serwer dedykowany (headless) NIE pobiera Workshopu sam — silnik loguje
+# "Skipping workshop, ISteamUGC is NULL" i pomija cały Warsztat. Dlatego KAŻDE ID
+# z WORKSHOP_IDS ściągamy ręcznie przez steamcmd do $QLDS_DIR (z +force_install_dir,
+# inaczej wylądowałoby w ~/Steam zamiast w katalogu serwera). Mapy Warsztatu QL są
+# pod appid 282440 (gra), NIE 349090 (serwer dedykowany).
+: "${WORKSHOP_APPID:=282440}"
+if [ "${SKIP_WORKSHOP_DOWNLOAD:-0}" != "1" ]; then
+  log "Pobieram mapy z Warsztatu (${#WORKSHOP_IDS[@]} pozycji, appid $WORKSHOP_APPID) — może chwilę potrwać..."
+  _ws_ok=0; _ws_fail=0
+  for _wid in "${WORKSHOP_IDS[@]}"; do
+    if "$STEAMCMD_DIR/steamcmd.sh" +force_install_dir "$QLDS_DIR" +login anonymous \
+         +workshop_download_item "$WORKSHOP_APPID" "$_wid" +quit >/dev/null 2>&1; then
+      _ws_ok=$((_ws_ok+1))
+    else
+      _ws_fail=$((_ws_fail+1))
+      warn "  Workshop $_wid — nie udało się pobrać (mógł zostać usunięty z Warsztatu)."
+    fi
+  done
+  ok "Warsztat: pobrano $_ws_ok, nieudanych $_ws_fail. Zawartość: $QLDS_DIR/steamapps/workshop/content/$WORKSHOP_APPID/"
+else
+  warn "Pominięto pobieranie Warsztatu (SKIP_WORKSHOP_DOWNLOAD=1) — mapy Workshop trzeba dociągnąć ręcznie."
+fi
+
 # ── 8. Skrypt startowy ───────────────────────────────────────────────────────
 START="$QLDS_DIR/start.sh"
 cat > "$START" <<EOF
