@@ -71,6 +71,7 @@
 850146040  // Hydra — hydra
 852034378  // Penumbra — penumbra
 572015381  // CS maps: de_dust & de_dust2 — ql_dust, ql_dust2
+1502166021 // De_dust2. (remake CS 1.6) — de_dust2
 
 // UWAGA: 917845571 to KOLEKCJA (Mega MapPack & SkinPack 2017, ~798 pozycji, ~6 GB),
 // a NIE pojedyncza mapa — steamcmd +workshop_download_item nie pobiera kolekcji.
